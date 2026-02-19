@@ -36,13 +36,13 @@ export default function DailyTimeline({ entries }) {
   const totalDuration = entries.reduce((sum, e) => sum + (e.duration || 0), 0);
 
   return (
-    <div className="bg-[#0A0A0A] border border-[#333] p-6" data-testid="daily-timeline">
+    <div className="bg-[#0A0A0A] border border-[#333] p-4 md:p-6" data-testid="daily-timeline">
       <p className="font-mono text-xs text-[#52525B] uppercase tracking-widest mb-4">
         Today's Timeline
       </p>
 
       {/* Bar visualization */}
-      <div className="flex h-12 border border-[#222] overflow-hidden mb-6" data-testid="timeline-bar">
+      <div className="flex h-10 md:h-12 border border-[#222] overflow-hidden mb-4 md:mb-6" data-testid="timeline-bar">
         {entries.map((entry) => {
           const width = totalDuration > 0
             ? Math.max(((entry.duration || 0) / totalDuration) * 100, 1)
