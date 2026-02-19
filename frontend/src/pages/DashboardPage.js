@@ -77,7 +77,7 @@ export default function DashboardPage({ user }) {
 
   return (
     <AppShell user={user} activePage="dashboard">
-      <div className="space-y-6">
+      <div className="space-y-4 md:space-y-6">
         {/* Active Timer */}
         <ActiveTimer
           currentTimer={currentTimer}
@@ -90,8 +90,8 @@ export default function DashboardPage({ user }) {
         <StatsBar dailyData={dailyData} />
 
         {/* Main Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Timeline - 2 cols */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
+          {/* Timeline - 2 cols on lg */}
           <div className="lg:col-span-2">
             <DailyTimeline entries={dailyData?.entries || []} />
           </div>
