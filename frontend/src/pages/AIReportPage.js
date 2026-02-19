@@ -127,7 +127,7 @@ export default function AIReportPage({ user }) {
                 key={r.report_id}
                 onClick={() => selectReport(r)}
                 data-testid={`report-item-${r.report_id}`}
-                className={`w-full text-left p-3 border transition-colors duration-75 ${
+                className={`min-w-[200px] lg:min-w-0 w-full text-left p-3 border transition-colors duration-75 shrink-0 ${
                   activeReport?.report_id === r.report_id
                     ? "border-[#00FF41] bg-[#0A0A0A]"
                     : "border-[#222] bg-transparent hover:border-[#444]"
