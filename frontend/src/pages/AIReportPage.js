@@ -110,12 +110,13 @@ export default function AIReportPage({ user }) {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 md:gap-6">
           {/* Report List */}
-          <div className="lg:col-span-1 space-y-2" data-testid="report-list">
+          <div className="lg:col-span-1 space-y-2 order-2 lg:order-1" data-testid="report-list">
             <p className="font-mono text-[10px] text-[#52525B] uppercase tracking-widest mb-3">
               Past Reports
             </p>
+            <div className="flex lg:flex-col gap-2 overflow-x-auto lg:overflow-visible pb-2 lg:pb-0">
             {reports.length === 0 && !loading && (
               <p className="font-mono text-xs text-[#333]">
                 No reports yet. Generate your first one.
