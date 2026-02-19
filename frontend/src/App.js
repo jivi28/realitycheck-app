@@ -1,52 +1,144 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
+import { Toaster } from "@/components/ui/sonner";
+import LoginPage from "@/pages/LoginPage";
+import AuthCallback from "@/pages/AuthCallback";
+import DashboardPage from "@/pages/DashboardPage";
+import ReportsPage from "@/pages/ReportsPage";
+import AIReportPage from "@/pages/AIReportPage";
+import ProjectsPage from "@/pages/ProjectsPage";
+import HistoryPage from "@/pages/HistoryPage";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
+export { API, BACKEND_URL };
+
+function ProtectedRoute({ children }) {
+  const [isAuthenticated, setIsAuthenticated] = useState(null);
+  const [user, setUser] = useState(null);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
-    helloWorldApi();
-  }, []);
+    if (location.state?.user) {
+      setUser(location.state.user);
+      setIsAuthenticated(true);
+      return;
+    }
+    const checkAuth = async () => {
+      try {
+        const response = await fetch(`${API}/auth/me`, {
+          credentials: "include",
+        });
+        if (!response.ok) throw new Error("Not authenticated");
+        const userData = await response.json();
+        setUser(userData);
+        setIsAuthenticated(true);
+      } catch {
+        setIsAuthenticated(false);
+        navigate("/login");
+      }
+    };
+    checkAuth();
+  }, [navigate, location.state]);
+
+  if (isAuthenticated === null) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center">
+        <div className="text-[#00FF41] font-mono text-sm tracking-widest uppercase animate-pulse">
+          Initializing...
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return null;
+  return typeof children === "function" ? children({ user }) : children;
+}
+
+function AppRouter() {
+  const location = useLocation();
+
+  // CRITICAL: Detect session_id synchronously during render
+  if (location.hash?.includes("session_id=")) {
+    return <AuthCallback />;
+  }
 
   return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/"
+        element={
+          <ProtectedRoute>
+            {({ user }) => <DashboardPage user={user} />}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard"
+        element={
+          <ProtectedRoute>
+            {({ user }) => <DashboardPage user={user} />}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/reports"
+        element={
+          <ProtectedRoute>
+            {({ user }) => <ReportsPage user={user} />}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/ai-report"
+        element={
+          <ProtectedRoute>
+            {({ user }) => <AIReportPage user={user} />}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/projects"
+        element={
+          <ProtectedRoute>
+            {({ user }) => <ProjectsPage user={user} />}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/history"
+        element={
+          <ProtectedRoute>
+            {({ user }) => <HistoryPage user={user} />}
+          </ProtectedRoute>
+        }
+      />
+    </Routes>
   );
-};
+}
 
 function App() {
   return (
-    <div className="App">
+    <div className="min-h-screen bg-[#050505]">
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
+        <AppRouter />
       </BrowserRouter>
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          style: {
+            background: "#0A0A0A",
+            border: "1px solid #333",
+            color: "#EDEDED",
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: "13px",
+          },
+        }}
+      />
     </div>
   );
 }
