@@ -64,71 +64,112 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop })
     toast.success("Timer stopped");
   };
 
+  // Use refs to avoid stale closures in voice callbacks
+  const currentTimerRef = useRef(currentTimer);
+  const selectedProjectIdRef = useRef(selectedProjectId);
+  useEffect(() => { currentTimerRef.current = currentTimer; }, [currentTimer]);
+  useEffect(() => { selectedProjectIdRef.current = selectedProjectId; }, [selectedProjectId]);
+
   // Voice recognition
   const startListening = useCallback(() => {
-    if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
-      toast.error("Voice not supported in this browser");
+    const hasSpeech = "webkitSpeechRecognition" in window || "SpeechRecognition" in window;
+    if (!hasSpeech) {
+      toast.error("Voice recognition is only supported in Chrome and Edge browsers.");
       return;
     }
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = "en-US";
+    // Request microphone permission first
+    navigator.mediaDevices
+      .getUserMedia({ audio: true })
+      .then((stream) => {
+        // Stop the stream immediately - we just needed permission
+        stream.getTracks().forEach((t) => t.stop());
 
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript.toLowerCase().trim();
-      setIsListening(false);
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.lang = "en-US";
+        recognition.maxAlternatives = 1;
 
-      // Parse voice commands
-      if (transcript.includes("stop") || transcript.includes("end") || transcript.includes("finish")) {
-        if (currentTimer) {
-          handleStop();
+        recognition.onresult = (event) => {
+          const result = event.results[event.results.length - 1];
+          if (!result.isFinal) return; // Wait for final result
+
+          const transcript = result[0].transcript.toLowerCase().trim();
+          const confidence = result[0].confidence;
+          setIsListening(false);
+
+          toast.info(`Heard: "${transcript}" (${Math.round(confidence * 100)}% confidence)`);
+
+          // Parse voice commands
+          if (transcript.includes("stop") || transcript.includes("end") || transcript.includes("finish")) {
+            if (currentTimerRef.current) {
+              onStop().then(() => toast.success("Timer stopped by voice"));
+            } else {
+              toast.error("No timer running to stop");
+            }
+          } else {
+            // Extract description - remove wake word and command prefix
+            let desc = transcript
+              .replace(/^(hey\s+)?(computer[,.]?\s*)?/, "")
+              .replace(/^(please\s+)?start\s*(working on|doing|task|studying|coding|tracking)?\s*/, "")
+              .trim();
+
+            if (!desc || desc.length < 2) {
+              desc = transcript.replace(/^(hey\s+)?(computer[,.]?\s*)?/, "").trim();
+            }
+
+            if (desc && desc.length >= 2) {
+              // Capitalize first letter
+              desc = desc.charAt(0).toUpperCase() + desc.slice(1);
+              setDescription(desc);
+              onStart(desc, selectedProjectIdRef.current || null)
+                .then(() => {
+                  setDescription("");
+                  toast.success(`Started: ${desc}`);
+                })
+                .catch((err) => toast.error(err.message));
+            } else {
+              toast.error('Try saying "Start studying biology" or "Stop task"');
+            }
+          }
+        };
+
+        recognition.onerror = (event) => {
+          setIsListening(false);
+          if (event.error === "no-speech") {
+            toast.error("No speech detected. Click the mic and speak clearly.");
+          } else if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+            toast.error("Microphone access denied. Please allow microphone permissions.");
+          } else if (event.error === "network") {
+            toast.error("Network error. Voice recognition requires an internet connection.");
+          } else if (event.error === "aborted") {
+            // User cancelled, no error needed
+          } else {
+            toast.error(`Voice error: ${event.error}. Try again.`);
+          }
+        };
+
+        recognition.onend = () => {
+          setIsListening(false);
+        };
+
+        recognitionRef.current = recognition;
+        recognition.start();
+        setIsListening(true);
+      })
+      .catch((err) => {
+        console.error("Microphone permission error:", err);
+        if (err.name === "NotAllowedError") {
+          toast.error("Microphone access denied. Please click the lock icon in your address bar and allow microphone access.");
+        } else if (err.name === "NotFoundError") {
+          toast.error("No microphone found. Please connect a microphone.");
         } else {
-          toast.error("No timer running");
+          toast.error("Could not access microphone. Please check your browser permissions.");
         }
-      } else if (transcript.includes("start")) {
-        const desc = transcript
-          .replace(/^(computer[,.]?\s*)?/, "")
-          .replace(/^start\s*(working on|doing|task|studying|coding)?\s*/, "")
-          .trim();
-        if (desc) {
-          setDescription(desc);
-          onStart(desc, selectedProjectId || null)
-            .then(() => {
-              setDescription("");
-              toast.success(`Started: ${desc}`);
-            })
-            .catch((err) => toast.error(err.message));
-        } else {
-          toast.error("Say what you want to start, e.g., 'Start studying biology'");
-        }
-      } else {
-        // If no command keyword, treat as description and start
-        setDescription(transcript);
-        onStart(transcript, selectedProjectId || null)
-          .then(() => {
-            setDescription("");
-            toast.success(`Started: ${transcript}`);
-          })
-          .catch((err) => toast.error(err.message));
-      }
-    };
-
-    recognition.onerror = () => {
-      setIsListening(false);
-      toast.error("Voice recognition failed. Try again.");
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    recognitionRef.current = recognition;
-    recognition.start();
-    setIsListening(true);
-  }, [currentTimer, selectedProjectId, onStart]);
+      });
+  }, [onStart, onStop]);
 
   const stopListening = () => {
     if (recognitionRef.current) {
