@@ -75,16 +75,128 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop })
 
   // Voice recognition
   const retryCountRef = useRef(0);
+  const useWhisperRef = useRef(false); // true = skip Web Speech, go straight to Whisper
 
-  const startListening = useCallback(() => {
-    const hasSpeech = "webkitSpeechRecognition" in window || "SpeechRecognition" in window;
-    if (!hasSpeech) {
-      toast.error("Voice recognition is only supported in Chrome and Edge browsers.");
+  // Process transcript (shared between Web Speech and Whisper)
+  const processTranscript = useCallback((transcript) => {
+    const text = transcript.toLowerCase().trim();
+    if (!text) {
+      toast.error('No speech detected. Try again.');
       return;
     }
 
-    // Let the SpeechRecognition API handle mic permissions natively — 
-    // do NOT call getUserMedia first, it grabs then releases the mic causing conflicts.
+    toast.info(`Heard: "${text}"`);
+
+    if (text.includes("stop") || text.includes("end") || text.includes("finish")) {
+      if (currentTimerRef.current) {
+        onStop().then(() => toast.success("Timer stopped by voice"));
+      } else {
+        toast.error("No timer running to stop");
+      }
+    } else {
+      let desc = text
+        .replace(/^(hey\s+)?(computer[,.]?\s*)?/, "")
+        .replace(/^(please\s+)?start\s*(working on|doing|task|studying|coding|tracking)?\s*/, "")
+        .trim();
+      if (!desc || desc.length < 2) {
+        desc = text.replace(/^(hey\s+)?(computer[,.]?\s*)?/, "").trim();
+      }
+      if (desc && desc.length >= 2) {
+        desc = desc.charAt(0).toUpperCase() + desc.slice(1);
+        setDescription(desc);
+        onStart(desc, selectedProjectIdRef.current || null)
+          .then(() => { setDescription(""); toast.success(`Started: ${desc}`); })
+          .catch((err) => toast.error(err.message));
+      } else {
+        toast.error('Try saying "Start studying biology" or "Stop task"');
+      }
+    }
+  }, [onStart, onStop]);
+
+  // Whisper-based voice input (records audio -> sends to backend -> Whisper transcribes)
+  const startWhisperListening = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+      const chunks = [];
+
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setVoiceMode("processing");
+
+        const blob = new Blob(chunks, { type: "audio/webm" });
+        if (blob.size < 100) {
+          toast.error("Recording too short. Hold the mic button and speak.");
+          setVoiceMode("idle");
+          setIsListening(false);
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append("audio", blob, "voice.webm");
+
+        try {
+          const res = await fetch(`${API}/voice/transcribe`, {
+            method: "POST",
+            credentials: "include",
+            body: formData,
+          });
+          if (!res.ok) throw new Error("Transcription failed");
+          const data = await res.json();
+          if (data.text) {
+            processTranscript(data.text);
+          } else {
+            toast.error("Could not understand. Try speaking more clearly.");
+          }
+        } catch (err) {
+          toast.error("Voice processing failed. Please type your task instead.");
+        }
+        setVoiceMode("idle");
+        setIsListening(false);
+      };
+
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start();
+      setIsListening(true);
+      setVoiceMode("listening");
+
+      // Auto-stop after 8 seconds
+      setTimeout(() => {
+        if (mediaRecorder.state === "recording") {
+          mediaRecorder.stop();
+        }
+      }, 8000);
+
+    } catch (err) {
+      if (err.name === "NotAllowedError") {
+        toast.error("Microphone blocked. Allow mic access in your browser settings.");
+      } else if (err.name === "NotFoundError") {
+        toast.error("No microphone found.");
+      } else {
+        toast.error("Could not access microphone.");
+      }
+      setIsListening(false);
+      setVoiceMode("idle");
+    }
+  }, [processTranscript]);
+
+  // Web Speech API attempt (with auto-fallback to Whisper)
+  const startListening = useCallback(() => {
+    // If Web Speech already failed before, go straight to Whisper
+    if (useWhisperRef.current) {
+      startWhisperListening();
+      return;
+    }
+
+    const hasSpeech = "webkitSpeechRecognition" in window || "SpeechRecognition" in window;
+    if (!hasSpeech) {
+      useWhisperRef.current = true;
+      startWhisperListening();
+      return;
+    }
+
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
@@ -93,68 +205,32 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop })
     recognition.maxAlternatives = 1;
 
     recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript.toLowerCase().trim();
-      const confidence = event.results[0][0].confidence;
+      const transcript = event.results[0][0].transcript.trim();
       setIsListening(false);
+      setVoiceMode("idle");
       retryCountRef.current = 0;
-
-      toast.info(`Heard: "${transcript}" (${Math.round(confidence * 100)}%)`);
-
-      // Parse voice commands
-      if (transcript.includes("stop") || transcript.includes("end") || transcript.includes("finish")) {
-        if (currentTimerRef.current) {
-          onStop().then(() => toast.success("Timer stopped by voice"));
-        } else {
-          toast.error("No timer running to stop");
-        }
-      } else {
-        // Extract description - remove wake word and command prefix
-        let desc = transcript
-          .replace(/^(hey\s+)?(computer[,.]?\s*)?/, "")
-          .replace(/^(please\s+)?start\s*(working on|doing|task|studying|coding|tracking)?\s*/, "")
-          .trim();
-
-        if (!desc || desc.length < 2) {
-          desc = transcript.replace(/^(hey\s+)?(computer[,.]?\s*)?/, "").trim();
-        }
-
-        if (desc && desc.length >= 2) {
-          desc = desc.charAt(0).toUpperCase() + desc.slice(1);
-          setDescription(desc);
-          onStart(desc, selectedProjectIdRef.current || null)
-            .then(() => {
-              setDescription("");
-              toast.success(`Started: ${desc}`);
-            })
-            .catch((err) => toast.error(err.message));
-        } else {
-          toast.error('Try saying "Start studying biology" or "Stop task"');
-        }
-      }
+      processTranscript(transcript);
     };
 
     recognition.onerror = (event) => {
       setIsListening(false);
+      setVoiceMode("idle");
       const err = event.error;
 
-      if (err === "network") {
-        // Network errors are often transient with Web Speech API — auto-retry up to 2 times
-        if (retryCountRef.current < 2) {
-          retryCountRef.current += 1;
-          toast.info(`Reconnecting to speech service... (attempt ${retryCountRef.current})`);
-          setTimeout(() => startListening(), 500);
-          return;
-        }
-        retryCountRef.current = 0;
-        toast.error("Speech service unavailable. Please try again in a moment, or type your task instead.");
+      if (err === "network" || err === "service-not-allowed") {
+        // Web Speech API unavailable — switch to Whisper permanently for this session
+        useWhisperRef.current = true;
+        toast.info("Switching to server-side voice recognition...");
+        startWhisperListening();
+        return;
       } else if (err === "no-speech") {
         toast.error("No speech detected. Click the mic and speak clearly.");
-      } else if (err === "not-allowed" || err === "service-not-allowed") {
-        toast.error("Microphone blocked. Click the lock icon in your address bar to allow mic access, then try again.");
+      } else if (err === "not-allowed") {
+        toast.error("Microphone blocked. Allow mic access in your browser settings.");
       } else if (err === "aborted") {
-        // User cancelled — silent
+        // silent
       } else if (err === "audio-capture") {
-        toast.error("No microphone found. Please connect a microphone and try again.");
+        toast.error("No microphone found.");
       } else {
         toast.error(`Voice error: ${err}. Try again.`);
       }
@@ -162,16 +238,19 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop })
 
     recognition.onend = () => {
       setIsListening(false);
+      setVoiceMode("idle");
     };
 
     recognitionRef.current = recognition;
     try {
       recognition.start();
       setIsListening(true);
+      setVoiceMode("listening");
     } catch (e) {
-      toast.error("Could not start voice recognition. Please try again.");
+      useWhisperRef.current = true;
+      startWhisperListening();
     }
-  }, [onStart, onStop]);
+  }, [processTranscript, startWhisperListening]);
 
   const stopListening = () => {
     if (recognitionRef.current) {
