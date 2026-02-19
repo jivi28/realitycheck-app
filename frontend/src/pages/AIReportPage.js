@@ -81,13 +81,13 @@ export default function AIReportPage({ user }) {
 
   return (
     <AppShell user={user} activePage="ai-report">
-      <div className="space-y-6">
+      <div className="space-y-4 md:space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <Brain className="w-6 h-6 text-[#00FF41]" />
+            <Brain className="w-5 h-5 md:w-6 md:h-6 text-[#00FF41]" />
             <div>
-              <h1 className="font-heading text-2xl md:text-3xl font-bold tracking-tight uppercase text-[#EDEDED]">
+              <h1 className="font-heading text-xl md:text-2xl lg:text-3xl font-bold tracking-tight uppercase text-[#EDEDED]">
                 Reality Report
               </h1>
               <p className="font-mono text-xs text-[#52525B] uppercase tracking-wider mt-1">
@@ -99,7 +99,7 @@ export default function AIReportPage({ user }) {
             onClick={generateReport}
             disabled={generating}
             data-testid="generate-report-btn"
-            className="flex items-center gap-2 bg-[#00FF41] text-black font-mono text-xs font-bold uppercase tracking-wider px-5 py-3 hover:bg-[#00CC33] hover:shadow-[0_0_15px_rgba(0,255,65,0.5)] transition-colors duration-75 disabled:opacity-50"
+            className="flex items-center justify-center gap-2 bg-[#00FF41] text-black font-mono text-xs font-bold uppercase tracking-wider px-4 md:px-5 py-2.5 md:py-3 hover:bg-[#00CC33] hover:shadow-[0_0_15px_rgba(0,255,65,0.5)] transition-colors duration-75 disabled:opacity-50 w-full sm:w-auto"
           >
             {generating ? (
               <Loader2 className="w-4 h-4 animate-spin" />
