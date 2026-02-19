@@ -84,10 +84,10 @@ export default function ProjectsPage({ user }) {
 
   return (
     <AppShell user={user} activePage="projects">
-      <div className="space-y-6 max-w-2xl">
+      <div className="space-y-4 md:space-y-6 max-w-2xl">
         {/* Header */}
         <div>
-          <h1 className="font-heading text-2xl md:text-3xl font-bold tracking-tight uppercase text-[#EDEDED]">
+          <h1 className="font-heading text-xl md:text-2xl lg:text-3xl font-bold tracking-tight uppercase text-[#EDEDED]">
             Projects
           </h1>
           <p className="font-mono text-xs text-[#52525B] uppercase tracking-wider mt-1">
@@ -96,43 +96,43 @@ export default function ProjectsPage({ user }) {
         </div>
 
         {/* Create new */}
-        <div className="bg-[#0A0A0A] border border-[#333] p-6" data-testid="create-project-form">
+        <div className="bg-[#0A0A0A] border border-[#333] p-4 md:p-6" data-testid="create-project-form">
           <p className="font-mono text-[10px] text-[#52525B] uppercase tracking-widest mb-4">
             New Project
           </p>
-          <div className="flex gap-3 items-end">
-            <div className="flex-1">
-              <input
-                type="text"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Project name..."
-                data-testid="new-project-name-input"
-                className="w-full bg-transparent border-b border-[#333] focus:border-[#00FF41] px-0 py-3 font-mono text-sm text-[#EDEDED] placeholder:text-[#333] outline-none transition-colors"
-                onKeyDown={(e) => e.key === "Enter" && createProject()}
-              />
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Project name..."
+              data-testid="new-project-name-input"
+              className="w-full bg-transparent border-b border-[#333] focus:border-[#00FF41] px-0 py-3 font-mono text-sm text-[#EDEDED] placeholder:text-[#333] outline-none transition-colors"
+              onKeyDown={(e) => e.key === "Enter" && createProject()}
+            />
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex gap-1 flex-wrap">
+                {PRESET_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setNewColor(c)}
+                    data-testid={`color-${c}`}
+                    className={`w-6 h-6 transition-transform duration-75 ${
+                      newColor === c ? "scale-125 ring-1 ring-white" : "hover:scale-110"
+                    }`}
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+              </div>
+              <button
+                onClick={createProject}
+                data-testid="create-project-btn"
+                className="flex items-center gap-2 bg-[#00FF41] text-black font-mono text-xs font-bold uppercase tracking-wider px-4 py-2.5 hover:bg-[#00CC33] transition-colors duration-75 shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                Add
+              </button>
             </div>
-            <div className="flex gap-1">
-              {PRESET_COLORS.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setNewColor(c)}
-                  data-testid={`color-${c}`}
-                  className={`w-6 h-6 transition-transform duration-75 ${
-                    newColor === c ? "scale-125 ring-1 ring-white" : "hover:scale-110"
-                  }`}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
-            </div>
-            <button
-              onClick={createProject}
-              data-testid="create-project-btn"
-              className="flex items-center gap-2 bg-[#00FF41] text-black font-mono text-xs font-bold uppercase tracking-wider px-4 py-3 hover:bg-[#00CC33] transition-colors duration-75"
-            >
-              <Plus className="w-4 h-4" />
-              Add
-            </button>
           </div>
         </div>
 
