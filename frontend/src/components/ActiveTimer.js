@@ -303,14 +303,17 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop })
           {/* Voice button */}
           <button
             onClick={isListening ? stopListening : startListening}
+            disabled={voiceMode === "processing"}
             data-testid="voice-btn"
             className={`p-3 border transition-colors duration-75 ${
-              isListening
+              voiceMode === "processing"
+                ? "border-[#FFD600] text-[#FFD600] bg-[#FFD600]/10"
+                : isListening
                 ? "border-[#FF003C] text-[#FF003C] bg-[#FF003C]/10"
                 : "border-[#333] text-[#666] hover:text-[#EDEDED] hover:border-[#555]"
             }`}
           >
-            {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+            {voiceMode === "processing" ? <Loader2 className="w-5 h-5 animate-spin" /> : isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
           </button>
 
           {/* Stop button */}
