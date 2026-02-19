@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends
+from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends, UploadFile, File
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -7,6 +7,7 @@ import os
 import logging
 import uuid
 import httpx
+import tempfile
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
