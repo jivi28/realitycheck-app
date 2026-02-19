@@ -146,10 +146,11 @@ export default function AIReportPage({ user }) {
                 )}
               </button>
             ))}
+            </div>
           </div>
 
           {/* Report Content */}
-          <div className="lg:col-span-3 bg-[#0A0A0A] border border-[#333] p-8 min-h-[400px] relative" data-testid="report-content">
+          <div className="lg:col-span-3 bg-[#0A0A0A] border border-[#333] p-4 md:p-8 min-h-[300px] md:min-h-[400px] relative order-1 lg:order-2" data-testid="report-content">
             {generating && (
               <div className="flex items-center gap-2 mb-4">
                 <Loader2 className="w-4 h-4 text-[#00FF41] animate-spin" />
