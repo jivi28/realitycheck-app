@@ -591,6 +591,62 @@ async def get_project_analytics(
     return result
 
 
+# ===== VOICE TRANSCRIPTION (Whisper fallback) =====
+
+@api_router.post("/voice/transcribe")
+async def transcribe_voice(audio: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    from emergentintegrations.llm.openai import OpenAISpeechToText
+
+    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="LLM key not configured")
+
+    # Read uploaded audio
+    content = await audio.read()
+    if len(content) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Audio file too large (max 25MB)")
+    if len(content) < 100:
+        raise HTTPException(status_code=400, detail="Audio too short")
+
+    # Write to temp file with correct extension
+    suffix = ".webm"
+    if audio.content_type:
+        ct = audio.content_type.lower()
+        if "wav" in ct:
+            suffix = ".wav"
+        elif "mp3" in ct or "mpeg" in ct:
+            suffix = ".mp3"
+        elif "mp4" in ct or "m4a" in ct:
+            suffix = ".m4a"
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+
+        stt = OpenAISpeechToText(api_key=api_key)
+        with open(tmp_path, "rb") as f:
+            response = await stt.transcribe(
+                file=f,
+                model="whisper-1",
+                response_format="json",
+                language="en",
+                prompt="Time tracking voice command. Examples: start studying biology, stop task, start coding, start deep work session."
+            )
+
+        text = response.text.strip() if response and response.text else ""
+        return {"text": text}
+    except Exception as e:
+        logger.error(f"Whisper transcription failed: {e}")
+        raise HTTPException(status_code=500, detail="Transcription failed")
+    finally:
+        import os as _os
+        try:
+            _os.unlink(tmp_path)
+        except Exception:
+            pass
+
+
 # ===== AI REALITY REPORT =====
 
 @api_router.post("/reports/weekly")
