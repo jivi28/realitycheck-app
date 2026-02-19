@@ -277,151 +277,141 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop })
     >
       {currentTimer ? (
         /* === RUNNING STATE === */
-        <div className="flex items-center gap-6">
-          {/* Status indicator */}
-          <div className="w-3 h-3 bg-[#00FF41] timer-pulse shrink-0" />
-
-          {/* Info */}
-          <div className="flex-1 min-w-0">
-            <p className="font-mono text-lg text-[#EDEDED] truncate" data-testid="timer-description">
-              {currentTimer.description}
-            </p>
-            <div className="flex items-center gap-3 mt-1">
-              {currentTimer.project_name && (
-                <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: currentTimer.project_color || "#666" }}>
-                  {currentTimer.project_name}
-                </span>
-              )}
+        <div className="space-y-4">
+          {/* Top row: status + timer */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="w-3 h-3 bg-[#00FF41] timer-pulse shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="font-mono text-sm md:text-lg text-[#EDEDED] truncate" data-testid="timer-description">
+                  {currentTimer.description}
+                </p>
+                {currentTimer.project_name && (
+                  <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: currentTimer.project_color || "#666" }}>
+                    {currentTimer.project_name}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="font-heading text-2xl md:text-4xl font-bold text-[#00FF41] tabular-nums tracking-tight neon-glow shrink-0" data-testid="timer-display">
+              {formatElapsed(elapsed)}
             </div>
           </div>
-
-          {/* Timer display */}
-          <div className="font-heading text-4xl font-bold text-[#00FF41] tabular-nums tracking-tight neon-glow" data-testid="timer-display">
-            {formatElapsed(elapsed)}
+          {/* Bottom row: actions */}
+          <div className="flex items-center gap-3 justify-end">
+            <button
+              onClick={isListening ? stopListening : startListening}
+              disabled={voiceMode === "processing"}
+              data-testid="voice-btn"
+              className={`p-2.5 md:p-3 border transition-colors duration-75 ${
+                voiceMode === "processing"
+                  ? "border-[#FFD600] text-[#FFD600] bg-[#FFD600]/10"
+                  : isListening
+                  ? "border-[#FF003C] text-[#FF003C] bg-[#FF003C]/10"
+                  : "border-[#333] text-[#666] hover:text-[#EDEDED] hover:border-[#555]"
+              }`}
+            >
+              {voiceMode === "processing" ? <Loader2 className="w-4 h-4 md:w-5 md:h-5 animate-spin" /> : isListening ? <MicOff className="w-4 h-4 md:w-5 md:h-5" /> : <Mic className="w-4 h-4 md:w-5 md:h-5" />}
+            </button>
+            <button
+              onClick={handleStop}
+              data-testid="stop-timer-btn"
+              className="flex items-center gap-2 bg-[#FF003C] text-white font-mono text-xs font-bold uppercase tracking-wider px-4 md:px-5 py-2.5 md:py-3 hover:bg-[#CC0030] transition-colors duration-75"
+            >
+              <Square className="w-4 h-4" />
+              Stop
+            </button>
           </div>
-
-          {/* Voice button */}
-          <button
-            onClick={isListening ? stopListening : startListening}
-            disabled={voiceMode === "processing"}
-            data-testid="voice-btn"
-            className={`p-3 border transition-colors duration-75 ${
-              voiceMode === "processing"
-                ? "border-[#FFD600] text-[#FFD600] bg-[#FFD600]/10"
-                : isListening
-                ? "border-[#FF003C] text-[#FF003C] bg-[#FF003C]/10"
-                : "border-[#333] text-[#666] hover:text-[#EDEDED] hover:border-[#555]"
-            }`}
-          >
-            {voiceMode === "processing" ? <Loader2 className="w-5 h-5 animate-spin" /> : isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-          </button>
-
-          {/* Stop button */}
-          <button
-            onClick={handleStop}
-            data-testid="stop-timer-btn"
-            className="flex items-center gap-2 bg-[#FF003C] text-white font-mono text-xs font-bold uppercase tracking-wider px-5 py-3 hover:bg-[#CC0030] transition-colors duration-75"
-          >
-            <Square className="w-4 h-4" />
-            Stop
-          </button>
         </div>
       ) : (
         /* === IDLE STATE === */
-        <div className="flex items-center gap-4">
-          {/* Voice waveform / mic */}
-          <button
-            onClick={isListening ? stopListening : startListening}
-            disabled={voiceMode === "processing"}
-            data-testid="voice-btn-idle"
-            className={`p-4 border transition-colors duration-75 shrink-0 ${
-              voiceMode === "processing"
-                ? "border-[#FFD600] bg-[#FFD600]/10"
-                : isListening
-                ? "border-[#00FF41] bg-[#00FF41]/10"
-                : "border-[#333] hover:border-[#00FF41] hover:bg-[#00FF41]/5"
-            }`}
-          >
-            {voiceMode === "processing" ? (
-              <Loader2 className="w-6 h-6 text-[#FFD600] animate-spin" />
-            ) : isListening ? (
-              <div className="flex items-center gap-0.5 h-6 w-8">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <div
-                    key={i}
-                    className="voice-bar w-1 bg-[#00FF41]"
-                    style={{ animationDelay: `${i * 0.1}s` }}
-                  />
-                ))}
-              </div>
-            ) : (
-              <Mic className="w-6 h-6 text-[#666]" />
-            )}
-          </button>
-
-          {/* Description input */}
-          <input
-            type="text"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="What are you working on?"
-            data-testid="task-description-input"
-            className="flex-1 bg-transparent border-b border-[#333] focus:border-[#00FF41] px-0 py-3 font-mono text-sm text-[#EDEDED] placeholder:text-[#333] outline-none transition-colors"
-            onKeyDown={(e) => e.key === "Enter" && handleStart()}
-          />
-
-          {/* Project selector */}
-          <div className="relative" ref={dropdownRef}>
+        <div className="space-y-3">
+          {/* Input row */}
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => setShowProjectDropdown(!showProjectDropdown)}
-              data-testid="project-selector"
-              className="flex items-center gap-2 px-3 py-2.5 border border-[#333] font-mono text-xs text-[#A1A1AA] hover:border-[#555] transition-colors duration-75 min-w-[120px]"
+              onClick={isListening ? stopListening : startListening}
+              disabled={voiceMode === "processing"}
+              data-testid="voice-btn-idle"
+              className={`p-3 md:p-4 border transition-colors duration-75 shrink-0 ${
+                voiceMode === "processing"
+                  ? "border-[#FFD600] bg-[#FFD600]/10"
+                  : isListening
+                  ? "border-[#00FF41] bg-[#00FF41]/10"
+                  : "border-[#333] hover:border-[#00FF41] hover:bg-[#00FF41]/5"
+              }`}
             >
-              {selectedProject && (
-                <div className="w-2.5 h-2.5" style={{ backgroundColor: selectedProject.color }} />
+              {voiceMode === "processing" ? (
+                <Loader2 className="w-5 h-5 md:w-6 md:h-6 text-[#FFD600] animate-spin" />
+              ) : isListening ? (
+                <div className="flex items-center gap-0.5 h-5 md:h-6 w-7 md:w-8">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div
+                      key={i}
+                      className="voice-bar w-1 bg-[#00FF41]"
+                      style={{ animationDelay: `${i * 0.1}s` }}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <Mic className="w-5 h-5 md:w-6 md:h-6 text-[#666]" />
               )}
-              <span className="truncate">{selectedProject?.name || "Project"}</span>
-              <ChevronDown className="w-3 h-3 ml-auto shrink-0" />
             </button>
-
-            {showProjectDropdown && (
-              <div className="absolute right-0 top-full mt-1 w-48 bg-[#0A0A0A] border border-[#333] z-50 shadow-lg" data-testid="project-dropdown">
-                <button
-                  onClick={() => {
-                    setSelectedProjectId("");
-                    setShowProjectDropdown(false);
-                  }}
-                  className="w-full text-left px-3 py-2 font-mono text-xs text-[#666] hover:bg-[#1A1A1A] transition-colors"
-                >
-                  No project
-                </button>
-                {projects.map((p) => (
-                  <button
-                    key={p.project_id}
-                    onClick={() => {
-                      setSelectedProjectId(p.project_id);
-                      setShowProjectDropdown(false);
-                    }}
-                    data-testid={`select-project-${p.project_id}`}
-                    className="w-full flex items-center gap-2 px-3 py-2 font-mono text-xs text-[#EDEDED] hover:bg-[#1A1A1A] transition-colors"
-                  >
-                    <div className="w-2.5 h-2.5" style={{ backgroundColor: p.color }} />
-                    {p.name}
-                  </button>
-                ))}
-              </div>
-            )}
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What are you working on?"
+              data-testid="task-description-input"
+              className="flex-1 min-w-0 bg-transparent border-b border-[#333] focus:border-[#00FF41] px-0 py-2.5 md:py-3 font-mono text-sm text-[#EDEDED] placeholder:text-[#333] outline-none transition-colors"
+              onKeyDown={(e) => e.key === "Enter" && handleStart()}
+            />
           </div>
+          {/* Action row */}
+          <div className="flex items-center gap-3 justify-end">
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setShowProjectDropdown(!showProjectDropdown)}
+                data-testid="project-selector"
+                className="flex items-center gap-2 px-3 py-2.5 border border-[#333] font-mono text-xs text-[#A1A1AA] hover:border-[#555] transition-colors duration-75 min-w-[100px] md:min-w-[120px]"
+              >
+                {selectedProject && (
+                  <div className="w-2.5 h-2.5" style={{ backgroundColor: selectedProject.color }} />
+                )}
+                <span className="truncate">{selectedProject?.name || "Project"}</span>
+                <ChevronDown className="w-3 h-3 ml-auto shrink-0" />
+              </button>
 
-          {/* Start button */}
-          <button
-            onClick={handleStart}
-            data-testid="start-timer-btn"
-            className="flex items-center gap-2 bg-[#00FF41] text-black font-mono text-xs font-bold uppercase tracking-wider px-5 py-3 hover:bg-[#00CC33] hover:shadow-[0_0_15px_rgba(0,255,65,0.5)] transition-colors duration-75"
-          >
-            <Play className="w-4 h-4" />
-            Start
-          </button>
+              {showProjectDropdown && (
+                <div className="absolute right-0 bottom-full mb-1 md:bottom-auto md:top-full md:mt-1 w-48 bg-[#0A0A0A] border border-[#333] z-50 shadow-lg max-h-60 overflow-y-auto" data-testid="project-dropdown">
+                  <button
+                    onClick={() => { setSelectedProjectId(""); setShowProjectDropdown(false); }}
+                    className="w-full text-left px-3 py-2.5 font-mono text-xs text-[#666] hover:bg-[#1A1A1A] transition-colors"
+                  >
+                    No project
+                  </button>
+                  {projects.map((p) => (
+                    <button
+                      key={p.project_id}
+                      onClick={() => { setSelectedProjectId(p.project_id); setShowProjectDropdown(false); }}
+                      data-testid={`select-project-${p.project_id}`}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 font-mono text-xs text-[#EDEDED] hover:bg-[#1A1A1A] transition-colors"
+                    >
+                      <div className="w-2.5 h-2.5" style={{ backgroundColor: p.color }} />
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={handleStart}
+              data-testid="start-timer-btn"
+              className="flex items-center gap-2 bg-[#00FF41] text-black font-mono text-xs font-bold uppercase tracking-wider px-4 md:px-5 py-2.5 md:py-3 hover:bg-[#00CC33] hover:shadow-[0_0_15px_rgba(0,255,65,0.5)] transition-colors duration-75"
+            >
+              <Play className="w-4 h-4" />
+              Start
+            </button>
+          </div>
         </div>
       )}
 
