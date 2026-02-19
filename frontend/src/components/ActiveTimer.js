@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Mic, MicOff, Square, Play, ChevronDown } from "lucide-react";
+import { Mic, MicOff, Square, Play, ChevronDown, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { API } from "@/App";
 
 export default function ActiveTimer({ currentTimer, projects, onStart, onStop }) {
   const [elapsed, setElapsed] = useState(0);
@@ -8,7 +9,9 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop })
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [showProjectDropdown, setShowProjectDropdown] = useState(false);
+  const [voiceMode, setVoiceMode] = useState("idle"); // idle | listening | processing
   const recognitionRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
   const intervalRef = useRef(null);
   const dropdownRef = useRef(null);
 
