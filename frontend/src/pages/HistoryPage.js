@@ -132,53 +132,57 @@ export default function HistoryPage({ user }) {
                 <div
                   key={entry.entry_id}
                   data-testid={`entry-${entry.entry_id}`}
-                  className={`flex items-center gap-4 p-3 border group transition-colors duration-75 ${
+                  className={`flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 p-3 border group transition-colors duration-75 ${
                     entry.is_break
                       ? "bg-[#080808] border-[#1A1A1A]"
                       : "bg-[#0A0A0A] border-[#222] hover:border-[#444]"
                   }`}
                 >
-                  <div
-                    className="w-3 h-3 shrink-0"
-                    style={{
-                      backgroundColor: entry.is_break
-                        ? "#262626"
-                        : entry.project_color || "#00FF41",
-                    }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p
-                      className={`font-mono text-sm truncate ${
-                        entry.is_break ? "text-[#52525B] italic" : "text-[#EDEDED]"
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div
+                      className="w-3 h-3 shrink-0"
+                      style={{
+                        backgroundColor: entry.is_break
+                          ? "#262626"
+                          : entry.project_color || "#00FF41",
+                      }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className={`font-mono text-sm truncate ${
+                          entry.is_break ? "text-[#52525B] italic" : "text-[#EDEDED]"
+                        }`}
+                      >
+                        {entry.description}
+                      </p>
+                      {!entry.is_break && entry.project_name && (
+                        <p className="font-mono text-[10px] text-[#52525B] mt-0.5">
+                          {entry.project_name}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 sm:gap-4 ml-6 sm:ml-0">
+                    <div className="font-mono text-xs text-[#52525B] whitespace-nowrap">
+                      {formatTime(entry.start_time)} — {formatTime(entry.end_time)}
+                    </div>
+                    <div
+                      className={`font-mono text-xs whitespace-nowrap min-w-[40px] text-right ${
+                        entry.is_break ? "text-[#333]" : "text-[#00FF41]"
                       }`}
                     >
-                      {entry.description}
-                    </p>
-                    {!entry.is_break && entry.project_name && (
-                      <p className="font-mono text-[10px] text-[#52525B] mt-0.5">
-                        {entry.project_name}
-                      </p>
+                      {formatDuration(entry.duration)}
+                    </div>
+                    {!entry.is_break && (
+                      <button
+                        onClick={() => deleteEntry(entry.entry_id)}
+                        data-testid={`delete-entry-${entry.entry_id}`}
+                        className="opacity-0 group-hover:opacity-100 text-[#333] hover:text-[#FF003C] transition-opacity duration-75"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     )}
                   </div>
-                  <div className="font-mono text-xs text-[#52525B] whitespace-nowrap">
-                    {formatTime(entry.start_time)} — {formatTime(entry.end_time)}
-                  </div>
-                  <div
-                    className={`font-mono text-xs whitespace-nowrap min-w-[50px] text-right ${
-                      entry.is_break ? "text-[#333]" : "text-[#00FF41]"
-                    }`}
-                  >
-                    {formatDuration(entry.duration)}
-                  </div>
-                  {!entry.is_break && (
-                    <button
-                      onClick={() => deleteEntry(entry.entry_id)}
-                      data-testid={`delete-entry-${entry.entry_id}`}
-                      className="opacity-0 group-hover:opacity-100 text-[#333] hover:text-[#FF003C] transition-opacity duration-75"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
                 </div>
               ))}
             </div>
