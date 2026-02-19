@@ -43,11 +43,11 @@ export default function ReportsPage({ user }) {
 
   return (
     <AppShell user={user} activePage="reports">
-      <div className="space-y-6">
+      <div className="space-y-4 md:space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h1 className="font-heading text-2xl md:text-3xl font-bold tracking-tight uppercase text-[#EDEDED]">
+            <h1 className="font-heading text-xl md:text-2xl lg:text-3xl font-bold tracking-tight uppercase text-[#EDEDED]">
               Reports
             </h1>
             <p className="font-mono text-xs text-[#52525B] uppercase tracking-wider mt-1">
@@ -67,33 +67,33 @@ export default function ReportsPage({ user }) {
         </div>
 
         {/* Top metrics */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="bg-[#0A0A0A] border border-[#333] p-6" data-testid="metric-weekly-productive">
-            <p className="font-mono text-[10px] text-[#52525B] uppercase tracking-widest mb-2">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
+          <div className="bg-[#0A0A0A] border border-[#333] p-4 md:p-6" data-testid="metric-weekly-productive">
+            <p className="font-mono text-[9px] md:text-[10px] text-[#52525B] uppercase tracking-widest mb-2">
               Week Total
             </p>
-            <p className="font-heading text-3xl font-bold text-[#00FF41]">
+            <p className="font-heading text-2xl md:text-3xl font-bold text-[#00FF41]">
               {productiveHours}h
             </p>
             <p className="font-mono text-xs text-[#52525B] mt-1">productive</p>
           </div>
-          <div className="bg-[#0A0A0A] border border-[#333] p-6" data-testid="metric-today-productive">
-            <p className="font-mono text-[10px] text-[#52525B] uppercase tracking-widest mb-2">
+          <div className="bg-[#0A0A0A] border border-[#333] p-4 md:p-6" data-testid="metric-today-productive">
+            <p className="font-mono text-[9px] md:text-[10px] text-[#52525B] uppercase tracking-widest mb-2">
               Today
             </p>
-            <p className="font-heading text-3xl font-bold text-[#EDEDED]">
+            <p className="font-heading text-2xl md:text-3xl font-bold text-[#EDEDED]">
               {todayProdHours}h
             </p>
             <p className="font-mono text-xs text-[#52525B] mt-1">
               of ~{awakeHours}h awake
             </p>
           </div>
-          <div className="bg-[#0A0A0A] border border-[#333] p-6" data-testid="metric-reality-score">
-            <p className="font-mono text-[10px] text-[#52525B] uppercase tracking-widest mb-2">
+          <div className="bg-[#0A0A0A] border border-[#333] p-4 md:p-6" data-testid="metric-reality-score">
+            <p className="font-mono text-[9px] md:text-[10px] text-[#52525B] uppercase tracking-widest mb-2">
               Reality Score
             </p>
             <p
-              className={`font-heading text-3xl font-bold ${
+              className={`font-heading text-2xl md:text-3xl font-bold ${
                 realityScore >= 50
                   ? "text-[#00FF41]"
                   : realityScore >= 25
@@ -110,7 +110,7 @@ export default function ReportsPage({ user }) {
         </div>
 
         {/* Charts */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
           <div className="bg-[#0A0A0A] border border-[#333] p-6" data-testid="weekly-bar-chart">
             <p className="font-mono text-xs text-[#52525B] uppercase tracking-widest mb-4">
               Weekly Overview
