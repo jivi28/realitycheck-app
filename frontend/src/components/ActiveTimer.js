@@ -332,14 +332,19 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop })
           {/* Voice waveform / mic */}
           <button
             onClick={isListening ? stopListening : startListening}
+            disabled={voiceMode === "processing"}
             data-testid="voice-btn-idle"
             className={`p-4 border transition-colors duration-75 shrink-0 ${
-              isListening
+              voiceMode === "processing"
+                ? "border-[#FFD600] bg-[#FFD600]/10"
+                : isListening
                 ? "border-[#00FF41] bg-[#00FF41]/10"
                 : "border-[#333] hover:border-[#00FF41] hover:bg-[#00FF41]/5"
             }`}
           >
-            {isListening ? (
+            {voiceMode === "processing" ? (
+              <Loader2 className="w-6 h-6 text-[#FFD600] animate-spin" />
+            ) : isListening ? (
               <div className="flex items-center gap-0.5 h-6 w-8">
                 {[1, 2, 3, 4, 5].map((i) => (
                   <div
