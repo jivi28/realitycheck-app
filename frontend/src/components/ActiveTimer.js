@@ -426,9 +426,14 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop })
       )}
 
       {/* Voice hint */}
-      {isListening && (
+      {isListening && voiceMode === "listening" && (
         <div className="mt-3 font-mono text-[10px] text-[#00FF41] uppercase tracking-widest animate-pulse">
-          Listening... say "start studying biology" or "stop task"
+          Listening... say "start studying biology" or "stop task" — click mic again to finish
+        </div>
+      )}
+      {voiceMode === "processing" && (
+        <div className="mt-3 font-mono text-[10px] text-[#FFD600] uppercase tracking-widest animate-pulse">
+          Processing your voice...
         </div>
       )}
     </div>
