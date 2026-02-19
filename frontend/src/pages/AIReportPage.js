@@ -161,28 +161,36 @@ export default function AIReportPage({ user }) {
               <div className="prose prose-invert max-w-none">
                 <div className="font-mono text-sm text-[#EDEDED] leading-relaxed whitespace-pre-wrap">
                   {displayText.split('\n').map((line, i) => {
+                    // Inline markdown bold rendering helper
+                    const renderInline = (text) => {
+                      const parts = text.split(/(\*\*[^*]+\*\*)/g);
+                      return parts.map((part, j) => {
+                        if (part.startsWith('**') && part.endsWith('**')) {
+                          return <strong key={j} className="text-[#00FF41] font-bold">{part.slice(2, -2)}</strong>;
+                        }
+                        return <span key={j}>{part}</span>;
+                      });
+                    };
+
                     if (line.startsWith('# ')) {
-                      return <h2 key={i} className="font-heading text-xl font-bold text-[#00FF41] mt-6 mb-3 uppercase">{line.replace('# ', '')}</h2>;
+                      return <h2 key={i} className="font-heading text-xl font-bold text-[#00FF41] mt-6 mb-3 uppercase">{renderInline(line.replace('# ', ''))}</h2>;
                     }
                     if (line.startsWith('## ')) {
-                      return <h3 key={i} className="font-heading text-lg font-semibold text-[#EDEDED] mt-4 mb-2">{line.replace('## ', '')}</h3>;
+                      return <h3 key={i} className="font-heading text-lg font-semibold text-[#EDEDED] mt-4 mb-2">{renderInline(line.replace('## ', ''))}</h3>;
                     }
                     if (line.startsWith('### ')) {
-                      return <h4 key={i} className="font-heading text-base font-semibold text-[#A1A1AA] mt-3 mb-1">{line.replace('### ', '')}</h4>;
+                      return <h4 key={i} className="font-heading text-base font-semibold text-[#A1A1AA] mt-3 mb-1">{renderInline(line.replace('### ', ''))}</h4>;
                     }
                     if (line.startsWith('- ')) {
                       return (
-                        <div key={i} className="flex gap-2 ml-2 my-1">
-                          <span className="text-[#00FF41]">&gt;</span>
-                          <span>{line.replace('- ', '')}</span>
+                        <div key={i} className="flex gap-2 ml-2 my-1.5">
+                          <span className="text-[#00FF41] shrink-0">&gt;</span>
+                          <span>{renderInline(line.replace('- ', ''))}</span>
                         </div>
                       );
                     }
-                    if (line.startsWith('**') && line.endsWith('**')) {
-                      return <p key={i} className="text-[#00FF41] font-bold my-1">{line.replace(/\*\*/g, '')}</p>;
-                    }
                     if (line.trim() === '') return <br key={i} />;
-                    return <p key={i} className="my-1">{line}</p>;
+                    return <p key={i} className="my-1">{renderInline(line)}</p>;
                   })}
                   {generating && <span className="typewriter-cursor inline-block w-2">&nbsp;</span>}
                 </div>
