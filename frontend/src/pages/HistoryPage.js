@@ -75,11 +75,11 @@ export default function HistoryPage({ user }) {
 
   return (
     <AppShell user={user} activePage="history">
-      <div className="space-y-6 max-w-3xl">
+      <div className="space-y-4 md:space-y-6 max-w-3xl">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h1 className="font-heading text-2xl md:text-3xl font-bold tracking-tight uppercase text-[#EDEDED]">
+            <h1 className="font-heading text-xl md:text-2xl lg:text-3xl font-bold tracking-tight uppercase text-[#EDEDED]">
               History
             </h1>
             <p className="font-mono text-xs text-[#52525B] uppercase tracking-wider mt-1">
@@ -93,7 +93,7 @@ export default function HistoryPage({ user }) {
               value={dateFilter}
               onChange={(e) => setDateFilter(e.target.value)}
               data-testid="history-date-filter"
-              className="bg-transparent border border-[#333] px-3 py-2 font-mono text-xs text-[#A1A1AA] outline-none focus:border-[#00FF41] transition-colors"
+              className="bg-transparent border border-[#333] px-3 py-2 font-mono text-xs text-[#A1A1AA] outline-none focus:border-[#00FF41] transition-colors flex-1 sm:flex-initial"
             />
             {dateFilter && (
               <button
