@@ -256,7 +256,12 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop })
     if (recognitionRef.current) {
       recognitionRef.current.stop();
     }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      mediaRecorderRef.current.stop();
+      return; // onstop handler will process the audio
+    }
     setIsListening(false);
+    setVoiceMode("idle");
   };
 
   const selectedProject = projects.find((p) => p.project_id === selectedProjectId);
