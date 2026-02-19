@@ -1,0 +1,156 @@
+{
+  "brand_identity": {
+    "name": "Reality Check",
+    "ethos": "Radical Transparency for High Achievers",
+    "metaphor": "The Void (Distraction) vs The Signal (Productivity)",
+    "aesthetic": "Neo-Brutalist Cyber-Terminal",
+    "tone": "Brutally Honest, Precision-Focused, Anti-SaaS"
+  },
+  "typography": {
+    "font_family": {
+      "headings": "Space Grotesk, sans-serif",
+      "body": "JetBrains Mono, monospace",
+      "code": "JetBrains Mono, monospace"
+    },
+    "scale": {
+      "h1": "text-5xl md:text-7xl font-bold tracking-tighter uppercase",
+      "h2": "text-3xl md:text-4xl font-bold tracking-tight uppercase",
+      "h3": "text-xl md:text-2xl font-semibold tracking-tight",
+      "body": "text-base font-normal leading-relaxed",
+      "small": "text-xs font-medium tracking-wide uppercase opacity-70"
+    },
+    "imports": [
+      "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@100..800&display=swap"
+    ]
+  },
+  "colors": {
+    "mode": "dark",
+    "palette": {
+      "background": {
+        "main": "#050505",
+        "card": "#0A0A0A",
+        "panel": "#121212",
+        "overlay": "rgba(5, 5, 5, 0.8)"
+      },
+      "primary": {
+        "neon": "#00FF41",
+        "dim": "#00CC33",
+        "glow": "0 0 10px #00FF41",
+        "text": "#00FF41"
+      },
+      "secondary": {
+        "void": "#262626",
+        "muted": "#404040",
+        "border": "#333333"
+      },
+      "text": {
+        "primary": "#EDEDED",
+        "secondary": "#A1A1AA",
+        "tertiary": "#52525B",
+        "inverse": "#000000"
+      },
+      "status": {
+        "productive": "#00FF41",
+        "unaccounted": "#262626",
+        "error": "#FF003C",
+        "warning": "#FFD600"
+      }
+    }
+  },
+  "visual_enhancers": {
+    "borders": {
+      "default": "1px solid #333333",
+      "active": "1px solid #00FF41",
+      "focus": "1px solid #00FF41",
+      "radius": "0px"
+    },
+    "shadows": {
+      "none": "none",
+      "glow": "0 0 20px rgba(0, 255, 65, 0.15)",
+      "hard": "4px 4px 0px 0px #262626"
+    },
+    "textures": {
+      "grid_overlay": "url('https://images.unsplash.com/photo-1682588941907-e4143465019f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2OTV8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGN5YmVybmV0aWMlMjBncmlkJTIwYmxhY2slMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc3MTUzNzMzN3ww&ixlib=rb-4.1.0&q=85')",
+      "noise": "url('data:image/svg+xml;base64,...') (Use CSS noise generator or library)"
+    },
+    "animations": {
+      "micro": "transition-all duration-100 ease-linear",
+      "glitch": "animate-pulse",
+      "scanline": "linear-gradient(to bottom, transparent 50%, rgba(0, 0, 0, 0.5) 50%) background-size: 100% 4px"
+    }
+  },
+  "layout_strategy": {
+    "grid_system": "Bento Grid Mode B (High Density)",
+    "container": "max-w-7xl mx-auto px-6 md:px-12",
+    "spacing": {
+      "section_gap": "gap-8",
+      "card_padding": "p-6",
+      "internal_gap": "gap-4"
+    },
+    "alignment": "Strict Left Alignment for Text, Center for Hero Visuals"
+  },
+  "component_overrides": {
+    "buttons": {
+      "base": "font-mono uppercase tracking-widest text-sm font-bold border border-green-500/50 bg-transparent text-green-400 hover:bg-green-500 hover:text-black hover:border-green-500 transition-all duration-75 rounded-none",
+      "primary": "bg-green-500 text-black border-none hover:bg-green-400 hover:shadow-[0_0_15px_rgba(0,255,65,0.5)]",
+      "secondary": "bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-white hover:border-neutral-600"
+    },
+    "cards": {
+      "base": "bg-[#0A0A0A] border border-[#333] rounded-none p-6 relative overflow-hidden group",
+      "hover": "hover:border-[#555] transition-colors duration-200"
+    },
+    "inputs": {
+      "base": "bg-transparent border-b border-[#333] focus:border-[#00FF41] rounded-none px-0 py-3 text-lg font-mono placeholder:text-neutral-700 outline-none transition-colors"
+    },
+    "charts": {
+      "library": "Recharts (via Shadcn)",
+      "styles": {
+        "bar_fill_productive": "#00FF41",
+        "bar_fill_break": "#262626",
+        "grid_stroke": "#1A1A1A",
+        "tooltip_bg": "#000000",
+        "tooltip_border": "#00FF41"
+      }
+    }
+  },
+  "image_assets": {
+    "hero_background": {
+      "url": "https://images.unsplash.com/photo-1682588941907-e4143465019f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2OTV8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGN5YmVybmV0aWMlMjBncmlkJTIwYmxhY2slMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc3MTUzNzMzN3ww&ixlib=rb-4.1.0&q=85",
+      "usage": "Use as a background-image on the Landing Page Hero Section with opacity-10 and mix-blend-mode: overlay"
+    },
+    "reality_report_glitch": {
+      "url": "https://images.pexels.com/photos/9817422/pexels-photo-9817422.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "usage": "Use as a subtle header background for the AI Reality Report page, heavily desaturated and darkened."
+    }
+  },
+  "instructions_to_main_agent": [
+    "INSTALL_DEPENDENCIES: `npm install lucide-react recharts framer-motion clsx tailwind-merge date-fns react-day-picker`",
+    "THEME_SETUP: Ensure `darkMode: 'class'` is set in tailwind.config.js and 'dark' class is applied to html/body by default. NO LIGHT MODE TOGGLE.",
+    "FONT_SETUP: Import 'Space Grotesk' and 'JetBrains Mono' in index.css from Google Fonts.",
+    "GLOBAL_CSS: Add `.font-mono { font-family: 'JetBrains Mono', monospace; }` and `.font-heading { font-family: 'Space Grotesk', sans-serif; }`.",
+    "COMPONENTS: Do not use rounded corners. Set `--radius: 0rem` in globals.css.",
+    "CHART_CONFIG: When using Recharts, ensure the 'Productive' data key always maps to color #00FF41 and 'Break/Other' maps to #262626.",
+    "VOICE_UI: Implementing the 'Voice-First' interface requires a visual indicator. Use a CSS animation of vertical bars (simulating a waveform) that animates when `isListening` state is true.",
+    "AI_REPORT: The GPT report should render as a 'typewriter' effect, revealing text character by character for dramatic effect.",
+    "AUTH_PAGE: Simple, centered card with 'Google Sign In' button. Button should be white with black text and Google 'G' icon, for maximum contrast against the black background.",
+    "DASHBOARD_LAYOUT: Use a high-density grid. Top row: Key Metrics (Productive Hours, Reality Score). Middle: Main Timeline Visualization. Right/Bottom: Project List & Quick Actions.",
+    "CRITICAL: Always use `data-testid` attributes for all interactive elements."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur) only for floating overlays/toasts.",
+    "You MUST NOT apply universal transition. Eg: `transition: all`. This results in breaking transforms.",
+    "You MUST NOT center align the app container, ie do not add `.App { text-align: center; }`.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
+    "NEVER: use AI assistant Emoji characters like 🤖🧠 etc for icons. Use Lucid React icons.",
+    "Every interaction needs micro-animations - hover states, transitions.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Main agent relies on these image URLs. Missing categories = main agent will use placeholder text which is FORBIDDEN.",
+    "Prioritize using pre-existing components from src/components/ui when applicable.",
+    "Components MUST use named exports.",
+    "Pages MUST use default exports.",
+    "Use `sonner` for toasts."
+  ]
+}
