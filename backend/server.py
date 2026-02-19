@@ -676,7 +676,7 @@ Rules:
 - Use short punchy paragraphs
 - Format with markdown headers and bullet points"""
     )
-    chat.with_model("openai", "gpt-5.2")
+    chat.with_model("openai", "gpt-4.1")
 
     message = UserMessage(text=f"Analyze this week's time tracking data and deliver a brutal reality check:\n{data_summary}")
 
