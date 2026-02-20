@@ -1,25 +1,23 @@
-/* eslint-disable no-undef */
-const React = require("react");
-const Recharts = require("recharts");
-
-const {
+import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend
-} = Recharts;
+} from "@/lib/charts";
 
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload) return null;
-  return React.createElement("div", { className: "bg-black border border-[#00FF41] px-4 py-3" },
-    React.createElement("p", { className: "font-mono text-xs text-[#A1A1AA] mb-1" }, label),
-    payload.map((p, i) =>
-      React.createElement("p", { key: i, className: "font-mono text-xs", style: { color: p.color } },
-        p.name, ": ", p.value, "h"
-      )
-    )
+  return (
+    <div className="bg-black border border-[#00FF41] px-4 py-3">
+      <p className="font-mono text-xs text-[#A1A1AA] mb-1">{label}</p>
+      {payload.map((p, i) => (
+        <p key={i} className="font-mono text-xs" style={{ color: p.color }}>
+          {p.name}: {p.value}h
+        </p>
+      ))}
+    </div>
   );
 }
 
-function WeeklyBarChart({ data }) {
+export default function WeeklyBarChart({ data }) {
   if (!data || data.length === 0) {
     return (
       <div className="flex items-center justify-center h-[300px]">
@@ -54,6 +52,3 @@ function WeeklyBarChart({ data }) {
     </ResponsiveContainer>
   );
 }
-
-module.exports = WeeklyBarChart;
-module.exports.default = WeeklyBarChart;
