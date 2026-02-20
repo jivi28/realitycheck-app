@@ -1,13 +1,10 @@
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-} from "recharts";
+import React from "react";
+import * as Recharts from "recharts";
+
+const {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, Legend
+} = Recharts;
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload) return null;
