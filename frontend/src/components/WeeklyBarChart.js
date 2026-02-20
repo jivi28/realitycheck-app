@@ -1,7 +1,10 @@
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Legend
-} from "@/lib/charts";
+/* eslint-disable */
+// No ES imports to avoid babel-metadata-plugin crash on recharts
+const React = require("react");
+
+function getCharts() {
+  return require("recharts");
+}
 
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload) return null;
@@ -18,6 +21,8 @@ function CustomTooltip({ active, payload, label }) {
 }
 
 export default function WeeklyBarChart({ data }) {
+  const { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } = getCharts();
+
   if (!data || data.length === 0) {
     return (
       <div className="flex items-center justify-center h-[300px]">
