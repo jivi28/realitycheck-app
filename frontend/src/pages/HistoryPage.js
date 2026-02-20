@@ -23,6 +23,7 @@ export default function HistoryPage({ user }) {
 
   useEffect(() => {
     fetchEntries();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateFilter]);
 
   const deleteEntry = async (entryId) => {
