@@ -1,11 +1,9 @@
-import {
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-} from "recharts";
+import React from "react";
+import * as Recharts from "recharts";
+
+const {
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend
+} = Recharts;
 
 const CustomTooltip = ({ active, payload }) => {
   if (!active || !payload || !payload[0]) return null;
