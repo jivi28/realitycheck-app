@@ -1,6 +1,7 @@
 import { Clock, Trash2 } from "lucide-react";
 import { API } from "@/App";
 import { toast } from "sonner";
+import { getEntryColor } from "@/lib/entryColors";
 
 export default function RecentEntries({ entries, onRefresh }) {
   const formatTime = (isoStr) => {
