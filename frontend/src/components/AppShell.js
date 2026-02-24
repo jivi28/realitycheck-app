@@ -10,6 +10,7 @@ import {
   Monitor,
   Menu,
   X,
+  CalendarClock,
 } from "lucide-react";
 import { API } from "@/App";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -19,6 +20,7 @@ const NAV_ITEMS = [
   { id: "reports", label: "Reports", icon: BarChart3, path: "/reports" },
   { id: "ai-report", label: "AI Report", icon: Brain, path: "/ai-report" },
   { id: "projects", label: "Projects", icon: FolderOpen, path: "/projects" },
+  { id: "schedules", label: "Schedules", icon: CalendarClock, path: "/schedules" },
   { id: "history", label: "History", icon: History, path: "/history" },
 ];
 
