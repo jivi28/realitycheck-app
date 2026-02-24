@@ -3,6 +3,7 @@ import { API } from "@/App";
 import AppShell from "@/components/AppShell";
 import { Trash2, Clock, Calendar } from "lucide-react";
 import { toast } from "sonner";
+import { getEntryColor } from "@/lib/entryColors";
 
 export default function HistoryPage({ user }) {
   const [entries, setEntries] = useState([]);
