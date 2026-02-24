@@ -1,3 +1,5 @@
+import { getEntryColor, getEntryLabel } from "@/lib/entryColors";
+
 export default function DailyTimeline({ entries }) {
   if (!entries || entries.length === 0) {
     return (
