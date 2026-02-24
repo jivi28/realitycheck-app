@@ -1,9 +1,10 @@
-import { Clock, Zap, Coffee } from "lucide-react";
+import { Clock, Zap, Coffee, Moon } from "lucide-react";
 
 export default function StatsBar({ dailyData }) {
   const productive = dailyData?.productive_seconds || 0;
   const breakTime = dailyData?.break_seconds || 0;
-  const total = productive + breakTime;
+  const scheduled = dailyData?.scheduled_seconds || 0;
+  const total = productive + breakTime + scheduled;
   const awakeHours = 16;
 
   const formatHours = (seconds) => {
