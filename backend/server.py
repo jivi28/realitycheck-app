@@ -712,11 +712,17 @@ async def get_daily_analytics(date: Optional[str] = None, user: dict = Depends(g
 
     productive_seconds = 0
     break_seconds = 0
+    scheduled_seconds = 0
     enriched = []
 
     for entry in entries:
         dur = entry.get("duration", 0) or 0
-        if entry.get("is_break"):
+        etype = entry.get("entry_type", "task" if not entry.get("is_break") else "break")
+        entry["entry_type"] = etype  # Ensure field exists for frontend
+
+        if etype == "scheduled":
+            scheduled_seconds += dur
+        elif entry.get("is_break") or etype == "break":
             break_seconds += dur
         else:
             productive_seconds += dur
@@ -730,6 +736,7 @@ async def get_daily_analytics(date: Optional[str] = None, user: dict = Depends(g
         "date": date,
         "productive_seconds": productive_seconds,
         "break_seconds": break_seconds,
+        "scheduled_seconds": scheduled_seconds,
         "entries": enriched
     }
 
