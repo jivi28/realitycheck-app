@@ -118,6 +118,14 @@ function AppRouter() {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/schedules"
+        element={
+          <ProtectedRoute>
+            {({ user }) => <SchedulesPage user={user} />}
+          </ProtectedRoute>
+        }
+      />
     </Routes>
   );
 }
