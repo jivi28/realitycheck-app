@@ -59,9 +59,7 @@ export default function RecentEntries({ entries, onRefresh }) {
               <div
                 className="w-2 h-2 shrink-0"
                 style={{
-                  backgroundColor: entry.is_break
-                    ? "#262626"
-                    : entry.project_color || "#00FF41",
+                  backgroundColor: getEntryColor(entry),
                 }}
               />
               <div className="flex-1 min-w-0">
