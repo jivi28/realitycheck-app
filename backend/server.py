@@ -298,6 +298,60 @@ async def delete_project(project_id: str, user: dict = Depends(get_current_user)
     return {"message": "Deleted"}
 
 
+# ===== RECURRING SCHEDULES =====
+
+@api_router.get("/schedules", response_model=List[ScheduleOut])
+async def get_schedules(user: dict = Depends(get_current_user)):
+    schedules = await db.recurring_schedules.find(
+        {"user_id": user["user_id"]}, {"_id": 0}
+    ).to_list(100)
+    return schedules
+
+
+@api_router.post("/schedules", response_model=ScheduleOut)
+async def create_schedule(data: ScheduleCreate, user: dict = Depends(get_current_user)):
+    schedule = {
+        "schedule_id": f"sched_{uuid.uuid4().hex[:12]}",
+        "user_id": user["user_id"],
+        "title": data.title,
+        "day_of_week": data.day_of_week,
+        "start_time": data.start_time,
+        "end_time": data.end_time,
+        "color": data.color,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.recurring_schedules.insert_one(schedule)
+    del schedule["_id"]
+    return schedule
+
+
+@api_router.put("/schedules/{schedule_id}", response_model=ScheduleOut)
+async def update_schedule(schedule_id: str, data: ScheduleUpdate, user: dict = Depends(get_current_user)):
+    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No update data")
+    await db.recurring_schedules.update_one(
+        {"schedule_id": schedule_id, "user_id": user["user_id"]},
+        {"$set": update_data}
+    )
+    schedule = await db.recurring_schedules.find_one(
+        {"schedule_id": schedule_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return schedule
+
+
+@api_router.delete("/schedules/{schedule_id}")
+async def delete_schedule(schedule_id: str, user: dict = Depends(get_current_user)):
+    result = await db.recurring_schedules.delete_one(
+        {"schedule_id": schedule_id, "user_id": user["user_id"]}
+    )
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return {"message": "Deleted"}
+
+
 # ===== TIMER / TIME ENTRIES =====
 
 # Maximum timer duration: 12 hours. Anything beyond = likely forgot to stop.
