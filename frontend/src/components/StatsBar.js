@@ -23,7 +23,7 @@ export default function StatsBar({ dailyData }) {
       : 0;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4" data-testid="stats-bar">
+    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4" data-testid="stats-bar">
       {/* Productive Time */}
       <div className="bg-[#0A0A0A] border border-[#333] p-3 md:p-4" data-testid="stat-productive">
         <div className="flex items-center gap-2 mb-1.5 md:mb-2">
