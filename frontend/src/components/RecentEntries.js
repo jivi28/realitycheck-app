@@ -78,7 +78,9 @@ export default function RecentEntries({ entries, onRefresh }) {
               </div>
               <span
                 className={`font-mono text-[10px] shrink-0 ${
-                  entry.is_break ? "text-[#333]" : "text-[#00FF41]"
+                  entry.entry_type === "break" || entry.is_break ? "text-[#333]"
+                  : entry.entry_type === "scheduled" ? "text-[#60A5FA]"
+                  : "text-[#00FF41]"
                 }`}
               >
                 {formatDuration(entry.duration)}
