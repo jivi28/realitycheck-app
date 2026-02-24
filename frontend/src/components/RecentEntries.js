@@ -65,7 +65,9 @@ export default function RecentEntries({ entries, onRefresh }) {
               <div className="flex-1 min-w-0">
                 <p
                   className={`font-mono text-xs truncate ${
-                    entry.is_break ? "text-[#52525B] italic" : "text-[#EDEDED]"
+                    entry.entry_type === "break" || entry.is_break ? "text-[#52525B] italic"
+                    : entry.entry_type === "scheduled" ? "text-[#60A5FA]"
+                    : "text-[#EDEDED]"
                   }`}
                 >
                   {entry.description}
