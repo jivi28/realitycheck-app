@@ -55,7 +55,7 @@ export default function DailyTimeline({ entries }) {
               className="h-full relative group"
               style={{
                 width: `${width}%`,
-                backgroundColor: entry.is_break ? "#1A1A1A" : (entry.project_color || "#00FF41"),
+                backgroundColor: getEntryColor(entry),
                 minWidth: "2px",
               }}
               data-testid={`timeline-block-${entry.entry_id}`}
