@@ -51,6 +51,19 @@ export default function StatsBar({ dailyData }) {
       </div>
 
       {/* Total Logged */}
+      <div className="bg-[#0A0A0A] border border-[#333] p-3 md:p-4" data-testid="stat-scheduled">
+        <div className="flex items-center gap-2 mb-1.5 md:mb-2">
+          <Moon className="w-3 h-3 md:w-3.5 md:h-3.5 text-[#60A5FA]" />
+          <span className="font-mono text-[9px] md:text-[10px] text-[#52525B] uppercase tracking-widest">
+            Committed
+          </span>
+        </div>
+        <p className="font-heading text-xl md:text-2xl font-bold text-[#60A5FA]">
+          {formatHours(scheduled)}
+        </p>
+      </div>
+
+      {/* Total */}
       <div className="bg-[#0A0A0A] border border-[#333] p-3 md:p-4" data-testid="stat-total">
         <div className="flex items-center gap-2 mb-1.5 md:mb-2">
           <Clock className="w-3 h-3 md:w-3.5 md:h-3.5 text-[#A1A1AA]" />
