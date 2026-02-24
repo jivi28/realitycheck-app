@@ -75,6 +75,35 @@ class TimeEntryOut(BaseModel):
     duration: Optional[float] = None
     is_break: bool = False
     is_running: bool = False
+    entry_type: str = "task"  # "task" | "break" | "scheduled"
+    schedule_id: Optional[str] = None
+
+
+# ===== RECURRING SCHEDULE MODELS =====
+
+class ScheduleCreate(BaseModel):
+    title: str
+    day_of_week: List[int]  # 0=Mon, 6=Sun
+    start_time: str  # "23:00"
+    end_time: str    # "07:00"
+    color: str = "#1E40AF"  # Deep Blue default
+
+class ScheduleUpdate(BaseModel):
+    title: Optional[str] = None
+    day_of_week: Optional[List[int]] = None
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    color: Optional[str] = None
+
+class ScheduleOut(BaseModel):
+    schedule_id: str
+    user_id: str
+    title: str
+    day_of_week: List[int]
+    start_time: str
+    end_time: str
+    color: str
+    created_at: str
 
 class AnalyticsDaily(BaseModel):
     date: str
