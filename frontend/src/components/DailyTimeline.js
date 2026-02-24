@@ -89,9 +89,7 @@ export default function DailyTimeline({ entries }) {
             <div
               className="w-2.5 h-2.5 shrink-0"
               style={{
-                backgroundColor: entry.is_break
-                  ? "#262626"
-                  : entry.project_color || "#00FF41",
+                backgroundColor: getEntryColor(entry),
               }}
             />
             <span className="font-mono text-xs text-[#52525B] w-24 shrink-0">
@@ -99,14 +97,21 @@ export default function DailyTimeline({ entries }) {
             </span>
             <span
               className={`font-mono text-xs flex-1 truncate ${
-                entry.is_break ? "text-[#52525B] italic" : "text-[#EDEDED]"
+                entry.entry_type === "break" || entry.is_break ? "text-[#52525B] italic"
+                : entry.entry_type === "scheduled" ? "text-[#60A5FA]"
+                : "text-[#EDEDED]"
               }`}
             >
               {entry.description}
             </span>
+            <span className="font-mono text-[10px] text-[#52525B] uppercase tracking-wider">
+              {getEntryLabel(entry)}
+            </span>
             <span
               className={`font-mono text-xs ${
-                entry.is_break ? "text-[#333]" : "text-[#00FF41]"
+                entry.entry_type === "break" || entry.is_break ? "text-[#333]"
+                : entry.entry_type === "scheduled" ? "text-[#60A5FA]"
+                : "text-[#00FF41]"
               }`}
             >
               {formatDuration(entry.duration)}
