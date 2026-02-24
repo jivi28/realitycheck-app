@@ -1,10 +1,14 @@
-/* eslint-disable */
-// No ES imports to avoid babel-metadata-plugin crash on recharts
-const React = require("react");
-
-function getCharts() {
-  return require("recharts");
-}
+import React from "react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend
+} from "recharts";
 
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload) return null;
