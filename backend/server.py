@@ -300,19 +300,186 @@ async def delete_project(project_id: str, user: dict = Depends(get_current_user)
 
 # ===== TIMER / TIME ENTRIES =====
 
+# Maximum timer duration: 12 hours. Anything beyond = likely forgot to stop.
+MAX_TIMER_DURATION_SECONDS = 12 * 3600
+
+
+def _parse_utc(iso_str: str) -> datetime:
+    """Parse an ISO string to a timezone-aware UTC datetime."""
+    dt = datetime.fromisoformat(iso_str)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _time_to_dt(base_date: datetime, time_str: str) -> datetime:
+    """Convert 'HH:MM' to a datetime on the given base_date (UTC)."""
+    h, m = map(int, time_str.split(":"))
+    return base_date.replace(hour=h, minute=m, second=0, microsecond=0)
+
+
+async def _fill_gap_with_context(user_id: str, gap_start: datetime, gap_end: datetime):
+    """
+    Context-aware gap engine. Fills the gap between gap_start and gap_end
+    by checking recurring schedules. Any time not covered by a schedule
+    becomes an auto-break entry.
+
+    Returns a list of entries inserted (for logging/testing).
+    """
+    gap_seconds = (gap_end - gap_start).total_seconds()
+    if gap_seconds <= 60:
+        return []  # Too short, ignore
+
+    # Fetch user's recurring schedules
+    schedules = await db.recurring_schedules.find(
+        {"user_id": user_id}, {"_id": 0}
+    ).to_list(100)
+
+    if not schedules:
+        # No schedules: entire gap is auto-break
+        entry = _make_break_entry(user_id, gap_start, gap_end)
+        await db.time_entries.insert_one(entry)
+        logger.info(f"Auto-break: {gap_seconds:.0f}s for user {user_id}")
+        return [entry]
+
+    # Build a list of schedule windows that overlap with our gap.
+    # We need to check every day the gap spans.
+    scheduled_windows = []
+    current_day = gap_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_day = gap_end.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+
+    while current_day <= end_day:
+        dow = current_day.weekday()  # 0=Monday
+        for sched in schedules:
+            if dow not in sched.get("day_of_week", []):
+                continue
+
+            s_start = _time_to_dt(current_day, sched["start_time"])
+            s_end = _time_to_dt(current_day, sched["end_time"])
+
+            # Handle overnight schedules (e.g., 23:00 -> 07:00)
+            if s_end <= s_start:
+                s_end += timedelta(days=1)
+
+            # Check overlap with our gap
+            overlap_start = max(s_start, gap_start)
+            overlap_end = min(s_end, gap_end)
+
+            if overlap_start < overlap_end:
+                scheduled_windows.append({
+                    "start": overlap_start,
+                    "end": overlap_end,
+                    "title": sched["title"],
+                    "color": sched.get("color", "#1E40AF"),
+                    "schedule_id": sched["schedule_id"],
+                })
+
+        current_day += timedelta(days=1)
+
+    # Sort windows by start time and merge overlapping
+    scheduled_windows.sort(key=lambda w: w["start"])
+
+    # Now fill the gap: iterate through, inserting breaks for uncovered segments
+    # and scheduled entries for covered segments
+    entries_to_insert = []
+    cursor = gap_start
+
+    for window in scheduled_windows:
+        # Break before this scheduled window
+        if cursor < window["start"]:
+            brk_duration = (window["start"] - cursor).total_seconds()
+            if brk_duration > 60:
+                entry = _make_break_entry(user_id, cursor, window["start"])
+                entries_to_insert.append(entry)
+
+        # The scheduled window itself
+        if cursor < window["end"]:
+            sched_start = max(cursor, window["start"])
+            sched_duration = (window["end"] - sched_start).total_seconds()
+            if sched_duration > 60:
+                entry = {
+                    "entry_id": f"entry_{uuid.uuid4().hex[:12]}",
+                    "user_id": user_id,
+                    "project_id": None,
+                    "description": window["title"],
+                    "start_time": sched_start.isoformat(),
+                    "end_time": window["end"].isoformat(),
+                    "duration": sched_duration,
+                    "is_break": False,
+                    "is_running": False,
+                    "entry_type": "scheduled",
+                    "schedule_id": window["schedule_id"],
+                    "schedule_color": window["color"],
+                }
+                entries_to_insert.append(entry)
+
+        cursor = max(cursor, window["end"])
+
+    # Break after last scheduled window
+    if cursor < gap_end:
+        brk_duration = (gap_end - cursor).total_seconds()
+        if brk_duration > 60:
+            entry = _make_break_entry(user_id, cursor, gap_end)
+            entries_to_insert.append(entry)
+
+    # Bulk insert
+    if entries_to_insert:
+        await db.time_entries.insert_many(entries_to_insert)
+        for e in entries_to_insert:
+            if "_id" in e:
+                del e["_id"]
+            logger.info(f"Gap fill [{e.get('entry_type','break')}]: {e['description']} "
+                        f"{e['start_time']} -> {e['end_time']} for user {user_id}")
+
+    return entries_to_insert
+
+
+def _make_break_entry(user_id: str, start: datetime, end: datetime) -> dict:
+    """Create an auto-break entry dict."""
+    return {
+        "entry_id": f"entry_{uuid.uuid4().hex[:12]}",
+        "user_id": user_id,
+        "project_id": None,
+        "description": "Unaccounted Time",
+        "start_time": start.isoformat(),
+        "end_time": end.isoformat(),
+        "duration": (end - start).total_seconds(),
+        "is_break": True,
+        "is_running": False,
+        "entry_type": "break",
+        "schedule_id": None,
+    }
+
+
 @api_router.post("/timer/start")
 async def start_timer(data: TimerStartRequest, user: dict = Depends(get_current_user)):
     user_id = user["user_id"]
+
     # Check if there's already a running timer
     running = await db.time_entries.find_one(
         {"user_id": user_id, "is_running": True}, {"_id": 0}
     )
     if running:
-        raise HTTPException(status_code=400, detail="Timer already running. Stop it first.")
+        # Auto-stop if running for more than MAX_TIMER_DURATION
+        start_dt = _parse_utc(running["start_time"])
+        elapsed = (datetime.now(timezone.utc) - start_dt).total_seconds()
+        if elapsed > MAX_TIMER_DURATION_SECONDS:
+            capped_end = start_dt + timedelta(seconds=MAX_TIMER_DURATION_SECONDS)
+            await db.time_entries.update_one(
+                {"entry_id": running["entry_id"]},
+                {"$set": {
+                    "end_time": capped_end.isoformat(),
+                    "duration": MAX_TIMER_DURATION_SECONDS,
+                    "is_running": False
+                }}
+            )
+            logger.info(f"Auto-stopped stale timer {running['entry_id']} (>{MAX_TIMER_DURATION_SECONDS/3600}h)")
+        else:
+            raise HTTPException(status_code=400, detail="Timer already running. Stop it first.")
 
     now = datetime.now(timezone.utc)
 
-    # AUTO-BREAK LOGIC: Check last ended entry
+    # AUTO-BREAK + SCHEDULE-AWARE GAP FILL
     last_entry = await db.time_entries.find_one(
         {"user_id": user_id, "is_running": False, "end_time": {"$ne": None}},
         {"_id": 0},
@@ -320,25 +487,8 @@ async def start_timer(data: TimerStartRequest, user: dict = Depends(get_current_
     )
 
     if last_entry:
-        last_end = datetime.fromisoformat(last_entry["end_time"])
-        if last_end.tzinfo is None:
-            last_end = last_end.replace(tzinfo=timezone.utc)
-        gap_seconds = (now - last_end).total_seconds()
-        # If gap > 60 seconds (1 min), insert auto-break
-        if gap_seconds > 60:
-            break_entry = {
-                "entry_id": f"entry_{uuid.uuid4().hex[:12]}",
-                "user_id": user_id,
-                "project_id": None,
-                "description": "Unaccounted Time",
-                "start_time": last_end.isoformat(),
-                "end_time": now.isoformat(),
-                "duration": gap_seconds,
-                "is_break": True,
-                "is_running": False,
-            }
-            await db.time_entries.insert_one(break_entry)
-            logger.info(f"Auto-break inserted: {gap_seconds:.0f}s gap for user {user_id}")
+        last_end = _parse_utc(last_entry["end_time"])
+        await _fill_gap_with_context(user_id, last_end, now)
 
     # Resolve project
     project_id = data.project_id
@@ -359,6 +509,8 @@ async def start_timer(data: TimerStartRequest, user: dict = Depends(get_current_
         "duration": None,
         "is_break": False,
         "is_running": True,
+        "entry_type": "task",
+        "schedule_id": None,
     }
     await db.time_entries.insert_one(new_entry)
     del new_entry["_id"]
