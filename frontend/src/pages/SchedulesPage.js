@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { API } from "@/App";
 import AppShell from "@/components/AppShell";
 import { Plus, Trash2, Edit2, Check, X, CalendarClock } from "lucide-react";
@@ -16,7 +16,7 @@ export default function SchedulesPage({ user }) {
   const [color, setColor] = useState("#1E40AF");
   const [editingId, setEditingId] = useState(null);
 
-  const fetchSchedules = async () => {
+  const fetchSchedules = useCallback(async () => {
     try {
       const res = await fetch(`${API}/schedules`, { credentials: "include" });
       const data = await res.json();
@@ -24,9 +24,9 @@ export default function SchedulesPage({ user }) {
     } catch (err) {
       console.error("Failed to fetch schedules:", err);
     }
-  };
+  }, []);
 
-  useEffect(() => { fetchSchedules(); }, []);
+  useEffect(() => { fetchSchedules(); }, [fetchSchedules]);
 
   const toggleDay = (dayIdx) => {
     setSelectedDays((prev) =>
@@ -106,7 +106,7 @@ export default function SchedulesPage({ user }) {
             <div className="flex gap-2 flex-wrap">
               {DAYS.map((day, idx) => (
                 <button
-                  key={idx}
+                  key={day}
                   onClick={() => toggleDay(idx)}
                   data-testid={`day-toggle-${idx}`}
                   className={`px-3 py-1.5 font-mono text-xs uppercase tracking-wider border transition-colors ${

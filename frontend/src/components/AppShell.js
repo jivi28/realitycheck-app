@@ -34,7 +34,10 @@ export default function AppShell({ children, user, activePage }) {
         method: "POST",
         credentials: "include",
       });
-    } catch {}
+    } catch (err) {
+      // Logout is best-effort — if the network fails we still navigate to /login
+      console.warn("Logout request failed:", err);
+    }
     navigate("/login");
   };
 

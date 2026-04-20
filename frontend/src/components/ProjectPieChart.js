@@ -42,8 +42,8 @@ export default function ProjectPieChart({ data }) {
           label={renderLabel}
           labelLine={false}
         >
-          {data.map((entry, idx) => (
-            <Cell key={idx} fill={entry.project_color || "#00FF41"} stroke="#050505" strokeWidth={2} />
+          {data.map((entry) => (
+            <Cell key={entry.project_id} fill={entry.project_color || "#00FF41"} stroke="#050505" strokeWidth={2} />
           ))}
         </Pie>
         <Tooltip content={<CustomTooltip />} />

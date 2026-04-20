@@ -1,0 +1,37 @@
+{
+  "summary": "Ran full backend + frontend verification for the RealityCheck AI bucketing fix. Seeded a test user/session directly into MongoDB and hit every critical endpoint via public REACT_APP_BACKEND_URL with Bearer token. All 13 pytest tests PASS (8 new e2e + 5 legacy unit). Weekly & daily analytics return 3 separate buckets (productive/scheduled/break). AI /api/reports/weekly data_summary has 3 distinct keys and correctly reports productive=2h / scheduled=8h / break=2h for seed data (previously this would incorrectly report productive=10h). Frontend compiles cleanly — all 7 routes (/, /dashboard, /reports, /ai-report, /schedules, /projects, /history) load with 0 JS page errors, 0 non-401 console errors, and NO babel-metadata-plugin crashes.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "startup", "issue": "FastAPI on_event('shutdown') is deprecated; should migrate to lifespan handlers (non-blocking)"},
+      {"endpoint": "/api/entries", "issue": "Date-range query uses ISO-string $gte/$lte against string start_time — works today because start_time is always stored as ISO UTC, but brittle (consider storing as datetime for index-efficient queries)"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_bucketing_e2e.py",
+    "/app/backend/tests/test_ai_bucketing.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is ~1100 lines — nearing the 700-line split threshold. Recommend extracting auth, projects, schedules, timer, analytics, and ai_reports into separate routers/modules in a future pass.",
+    "_fill_gap_with_context iterates day-by-day from gap_start to gap_end — fine for normal gaps but would iterate forever for very large gaps; consider capping at e.g. 14 days.",
+    "/api/analytics/weekly always uses the current UTC week; no query param to fetch a past week. AI report suffers the same limitation. Consider adding ?week_start=YYYY-MM-DD.",
+    "/api/reports/weekly stores the raw LLM response object (not just .content string) into `report['content']`, then returns it via JSON. Works because emergentintegrations already returns a serializable string, but worth type-asserting."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_bucketing_e2e.py (new)"
+  ],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "100% page load, auth-gated screens not UI-verified (no Google OAuth in test env)"},
+  "test_credentials": "No Google OAuth creds required — test seeds user_id='test_user_ai_bucket', session_token='test-sess-token-bucket' directly into MongoDB (users + user_sessions collections) with 7-day expiry. Cleaned up on fixture teardown.",
+  "seed_data_creation": "Inside pytest module-scope fixture `seeded_user`: inserts 1 user, 1 user_session (7d), 1 default project, and 3 time_entries (2h task + 8h scheduled 'Sleep' + 2h break) all within current UTC day, then deletes on teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Use /app/backend/tests/test_bucketing_e2e.py as the regression suite. It self-seeds and self-cleans. The Google OAuth httpOnly cookie prevents UI-level auth in Playwright, so for authenticated-page UI verification the main agent would need to either mock AuthContext or expose a dev-only endpoint that sets the cookie server-side from a Bearer token. All backend bucket logic is now proven correct end-to-end.",
+  "rca of the issue": "Original bug: /api/analytics/weekly and /api/reports/weekly summed ALL entry durations into productive_hours, including entries with entry_type='scheduled' (Sleep, Lectures). Fix: introduced _categorize_entry() + _build_weekly_summary() that split into 3 buckets via entry_type, with fallback to is_break for legacy entries. Regression protection: test_weekly_analytics_three_buckets and test_weekly_report_data_summary_three_keys assert seeded 2h/8h/2h data produces productive=2.0 (NOT 10.0) in both the analytics endpoint and the AI report data_summary."
+}

@@ -430,7 +430,7 @@ async def _fill_gap_with_context(user_id: str, gap_start: datetime, gap_end: dat
 
         current_day += timedelta(days=1)
 
-    # Sort windows by start time and merge overlapping
+    # Sort windows by start time
     scheduled_windows.sort(key=lambda w: w["start"])
 
     # Now fill the gap: iterate through, inserting breaks for uncovered segments
@@ -750,6 +750,7 @@ async def get_weekly_analytics(user: dict = Depends(get_current_user)):
     days = []
     total_productive = 0
     total_break = 0
+    total_scheduled = 0
 
     for i in range(7):
         day = start_of_week + timedelta(days=i)
@@ -762,26 +763,42 @@ async def get_weekly_analytics(user: dict = Depends(get_current_user)):
             {"_id": 0}
         ).to_list(200)
 
-        prod_s = sum(e.get("duration", 0) or 0 for e in entries if not e.get("is_break"))
-        brk_s = sum(e.get("duration", 0) or 0 for e in entries if e.get("is_break"))
+        # Separate into three buckets: real productive (task), scheduled (sleep/committed), break (unaccounted)
+        prod_s = 0
+        brk_s = 0
+        sched_s = 0
+        for e in entries:
+            dur = e.get("duration", 0) or 0
+            etype = e.get("entry_type") or ("break" if e.get("is_break") else "task")
+            if etype == "scheduled":
+                sched_s += dur
+            elif etype == "break" or e.get("is_break"):
+                brk_s += dur
+            else:
+                prod_s += dur
 
         days.append({
             "date": day_str,
             "day_name": day.strftime("%a"),
             "productive_seconds": prod_s,
             "break_seconds": brk_s,
+            "scheduled_seconds": sched_s,
             "productive_hours": round(prod_s / 3600, 2),
             "break_hours": round(brk_s / 3600, 2),
+            "scheduled_hours": round(sched_s / 3600, 2),
         })
         total_productive += prod_s
         total_break += brk_s
+        total_scheduled += sched_s
 
     return {
         "days": days,
         "total_productive_seconds": total_productive,
         "total_break_seconds": total_break,
+        "total_scheduled_seconds": total_scheduled,
         "total_productive_hours": round(total_productive / 3600, 2),
         "total_break_hours": round(total_break / 3600, 2),
+        "total_scheduled_hours": round(total_scheduled / 3600, 2),
     }
 
 
@@ -835,6 +852,20 @@ async def get_project_analytics(
 
 # ===== VOICE TRANSCRIPTION (Whisper fallback) =====
 
+def _audio_suffix_for_content_type(content_type: Optional[str]) -> str:
+    """Map a content-type string to an audio file extension suffix."""
+    if not content_type:
+        return ".webm"
+    ct = content_type.lower()
+    if "wav" in ct:
+        return ".wav"
+    if "mp3" in ct or "mpeg" in ct:
+        return ".mp3"
+    if "mp4" in ct or "m4a" in ct:
+        return ".m4a"
+    return ".webm"
+
+
 @api_router.post("/voice/transcribe")
 async def transcribe_voice(audio: UploadFile = File(...), user: dict = Depends(get_current_user)):
     from emergentintegrations.llm.openai import OpenAISpeechToText
@@ -850,17 +881,8 @@ async def transcribe_voice(audio: UploadFile = File(...), user: dict = Depends(g
     if len(content) < 100:
         raise HTTPException(status_code=400, detail="Audio too short")
 
-    # Write to temp file with correct extension
-    suffix = ".webm"
-    if audio.content_type:
-        ct = audio.content_type.lower()
-        if "wav" in ct:
-            suffix = ".wav"
-        elif "mp3" in ct or "mpeg" in ct:
-            suffix = ".mp3"
-        elif "mp4" in ct or "m4a" in ct:
-            suffix = ".m4a"
-
+    suffix = _audio_suffix_for_content_type(audio.content_type)
+    tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(content)
@@ -878,32 +900,35 @@ async def transcribe_voice(audio: UploadFile = File(...), user: dict = Depends(g
 
         text = response.text.strip() if response and response.text else ""
         return {"text": text}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Whisper transcription failed: {e}")
         raise HTTPException(status_code=500, detail="Transcription failed")
     finally:
-        import os as _os
-        try:
-            _os.unlink(tmp_path)
-        except Exception:
-            pass
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError as e:
+                logger.warning(f"Failed to delete temp audio file {tmp_path}: {e}")
 
 
 # ===== AI REALITY REPORT =====
 
-@api_router.post("/reports/weekly")
-async def generate_weekly_report(user: dict = Depends(get_current_user)):
-    from emergentintegrations.llm.chat import LlmChat, UserMessage
+def _categorize_entry(entry: dict) -> str:
+    """Return 'task', 'scheduled', or 'break' for a time entry."""
+    etype = entry.get("entry_type")
+    if etype in ("task", "scheduled", "break"):
+        return etype
+    return "break" if entry.get("is_break") else "task"
 
-    user_id = user["user_id"]
-    api_key = os.environ.get("EMERGENT_LLM_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="LLM key not configured")
 
-    today = datetime.now(timezone.utc).date()
-    start_of_week = today - timedelta(days=today.weekday())
-
-    # Gather week data
+async def _build_weekly_summary(user_id: str, start_of_week, today) -> tuple:
+    """
+    Gather 7-day time entry data for a user, bucketed by type.
+    Returns (week_data_list, totals_dict).
+    week_data entries contain per-day task/scheduled/break hours and descriptions.
+    """
     week_data = []
     for i in range(7):
         day = start_of_week + timedelta(days=i)
@@ -918,66 +943,111 @@ async def generate_weekly_report(user: dict = Depends(get_current_user)):
             {"_id": 0}
         ).to_list(200)
 
-        prod_entries = [e for e in entries if not e.get("is_break")]
-        brk_entries = [e for e in entries if e.get("is_break")]
+        task_entries = [e for e in entries if _categorize_entry(e) == "task"]
+        sched_entries = [e for e in entries if _categorize_entry(e) == "scheduled"]
+        brk_entries = [e for e in entries if _categorize_entry(e) == "break"]
 
-        prod_s = sum(e.get("duration", 0) or 0 for e in prod_entries)
+        task_s = sum(e.get("duration", 0) or 0 for e in task_entries)
+        sched_s = sum(e.get("duration", 0) or 0 for e in sched_entries)
         brk_s = sum(e.get("duration", 0) or 0 for e in brk_entries)
 
-        descs = [e.get("description", "") for e in prod_entries]
+        longest_min = 0
+        if task_entries:
+            longest_min = round(max(e.get("duration", 0) or 0 for e in task_entries) / 60, 1)
 
         week_data.append({
             "day": day.strftime("%A"),
             "date": day_str,
-            "productive_hours": round(prod_s / 3600, 2),
-            "break_hours": round(brk_s / 3600, 2),
-            "tasks": descs[:10],
-            "num_entries": len(prod_entries),
-            "longest_streak_min": 0,
+            "productive_hours": round(task_s / 3600, 2),
+            "scheduled_hours": round(sched_s / 3600, 2),
+            "unaccounted_hours": round(brk_s / 3600, 2),
+            "task_descriptions": [e.get("description", "") for e in task_entries][:10],
+            "scheduled_titles": list({e.get("description", "") for e in sched_entries}),
+            "num_task_sessions": len(task_entries),
+            "longest_focus_min": longest_min,
         })
 
-        # Calculate longest streak
-        if prod_entries:
-            max_dur = max(e.get("duration", 0) or 0 for e in prod_entries)
-            week_data[-1]["longest_streak_min"] = round(max_dur / 60, 1)
+    totals = {
+        "productive": sum(d["productive_hours"] for d in week_data),
+        "scheduled": sum(d["scheduled_hours"] for d in week_data),
+        "unaccounted": sum(d["unaccounted_hours"] for d in week_data),
+    }
+    return week_data, totals
 
-    total_productive = sum(d["productive_hours"] for d in week_data)
-    total_break = sum(d["break_hours"] for d in week_data)
 
-    data_summary = f"""
-WEEKLY TIME DATA FOR USER:
-Total Productive Hours: {total_productive:.1f}
-Total Break/Unaccounted Hours: {total_break:.1f}
-Days Tracked: {len(week_data)}
-
-DAILY BREAKDOWN:
-"""
+def _format_weekly_prompt(week_data: list, totals: dict) -> str:
+    """Format bucketed weekly data into a prompt string for the LLM."""
+    lines = [
+        "WEEKLY TIME DATA FOR USER:",
+        f"Total PRODUCTIVE (logged task) hours: {totals['productive']:.1f}h",
+        f"Total SCHEDULED/COMMITTED (sleep, lectures, etc.) hours: {totals['scheduled']:.1f}h",
+        f"Total UNACCOUNTED (break/unlogged) hours: {totals['unaccounted']:.1f}h",
+        f"Days tracked: {len(week_data)}",
+        "",
+        "DAILY BREAKDOWN:",
+    ]
     for d in week_data:
-        data_summary += f"\n{d['day']} ({d['date']}):"
-        data_summary += f"\n  Productive: {d['productive_hours']}h | Breaks: {d['break_hours']}h"
-        data_summary += f"\n  Sessions: {d['num_entries']} | Longest Focus: {d['longest_streak_min']}min"
-        if d['tasks']:
-            data_summary += f"\n  Tasks: {', '.join(d['tasks'][:5])}"
+        lines.append(f"\n{d['day']} ({d['date']}):")
+        lines.append(
+            f"  Productive: {d['productive_hours']}h | "
+            f"Scheduled: {d['scheduled_hours']}h | "
+            f"Unaccounted: {d['unaccounted_hours']}h"
+        )
+        lines.append(
+            f"  Task sessions: {d['num_task_sessions']} | "
+            f"Longest focus streak: {d['longest_focus_min']}min"
+        )
+        if d["task_descriptions"]:
+            lines.append(f"  Tasks worked: {', '.join(d['task_descriptions'][:5])}")
+        if d["scheduled_titles"]:
+            lines.append(f"  Committed blocks: {', '.join(d['scheduled_titles'])}")
+    return "\n".join(lines)
+
+
+@api_router.post("/reports/weekly")
+async def generate_weekly_report(user: dict = Depends(get_current_user)):
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+
+    user_id = user["user_id"]
+    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="LLM key not configured")
+
+    today = datetime.now(timezone.utc).date()
+    start_of_week = today - timedelta(days=today.weekday())
+
+    week_data, totals = await _build_weekly_summary(user_id, start_of_week, today)
+    data_summary = _format_weekly_prompt(week_data, totals)
+
+    system_message = """You are a Brutal Productivity Analyst. You analyze time tracking data and deliver harsh, data-driven reality checks. You are NOT a motivational coach. You are a forensic auditor of human attention.
+
+CRITICAL DATA DEFINITIONS — do NOT confuse these:
+- "PRODUCTIVE hours": ONLY actively-logged task sessions (user hit start on a real task). This is what counts as real work.
+- "SCHEDULED hours": Committed time like Sleep, Lectures, Gym. This is NOT productive work — it is pre-committed life. Treat it as context, never call it productivity.
+- "UNACCOUNTED hours": Gaps between tasks. Default human state = distraction. This is time the user cannot account for.
+
+Rules:
+- Only the PRODUCTIVE bucket counts as real work. Never claim the user "worked" the scheduled hours.
+- Be specific with numbers. Use the exact data provided.
+- Point out patterns of self-deception (e.g. "you think you worked 10 hours but only 3 were real tasks").
+- Highlight unaccounted/productive ratio ruthlessly. If unaccounted >> productive, say so.
+- If a day has 0 productive hours, call it out directly (do not pad with the scheduled hours).
+- Note if focus sessions are short (under 45 min = fragmented attention).
+- Compare PRODUCTIVE hours (not scheduled) to a standard 8-hour workday.
+- Give 2-3 actionable, specific recommendations.
+- Keep tone sharp, direct, almost sardonic. No fluff, no "great job!".
+- Use short punchy paragraphs. Format with markdown headers and bullet points."""
 
     chat = LlmChat(
         api_key=api_key,
         session_id=f"report_{user_id}_{today.isoformat()}",
-        system_message="""You are a Brutal Productivity Analyst. You analyze time tracking data and deliver harsh, data-driven reality checks. You are NOT a motivational coach. You are a forensic auditor of human attention.
-
-Rules:
-- Be specific with numbers. Use the exact data provided.
-- Point out patterns of self-deception (e.g., "you think you worked 10 hours but only 3 were deep work")
-- Highlight the ratio of break time to productive time ruthlessly
-- Note if focus sessions are short (under 45 min = fragmented attention)
-- Compare productive hours to a standard 8-hour workday
-- Give 2-3 actionable, specific recommendations
-- Keep tone sharp, direct, almost sardonic. No fluff, no "great job!"
-- Use short punchy paragraphs
-- Format with markdown headers and bullet points"""
+        system_message=system_message,
     )
     chat.with_model("openai", "gpt-4.1")
 
-    message = UserMessage(text=f"Analyze this week's time tracking data and deliver a brutal reality check:\n{data_summary}")
+    message = UserMessage(
+        text=f"Analyze this week's time tracking data and deliver a brutal reality check:\n{data_summary}"
+    )
 
     try:
         response = await chat.send_message(message)
@@ -992,8 +1062,9 @@ Rules:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "content": response,
         "data_summary": {
-            "total_productive_hours": total_productive,
-            "total_break_hours": total_break,
+            "total_productive_hours": totals["productive"],
+            "total_scheduled_hours": totals["scheduled"],
+            "total_break_hours": totals["unaccounted"],
             "days": week_data,
         }
     }

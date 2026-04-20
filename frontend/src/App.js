@@ -37,7 +37,9 @@ function ProtectedRoute({ children }) {
         const userData = await response.json();
         setUser(userData);
         setIsAuthenticated(true);
-      } catch {
+      } catch (err) {
+        // Not authenticated — silently redirect to login
+        console.warn("Auth check failed, redirecting to login:", err?.message);
         setIsAuthenticated(false);
         navigate("/login");
       }

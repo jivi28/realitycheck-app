@@ -143,6 +143,9 @@ export default function AIReportPage({ user }) {
                 {r.data_summary && (
                   <p className="font-mono text-[10px] text-[#00FF41] mt-1">
                     {r.data_summary.total_productive_hours}h productive
+                    {typeof r.data_summary.total_scheduled_hours === "number" && (
+                      <span className="text-[#60A5FA]"> · {r.data_summary.total_scheduled_hours}h scheduled</span>
+                    )}
                   </p>
                 )}
               </button>
@@ -162,41 +165,44 @@ export default function AIReportPage({ user }) {
             )}
             {displayText ? (
               <div className="prose prose-invert max-w-none">
-                <div className="font-mono text-sm text-[#EDEDED] leading-relaxed whitespace-pre-wrap">
-                  {displayText.split('\n').map((line, i) => {
-                    // Inline markdown bold rendering helper
-                    const renderInline = (text) => {
-                      const parts = text.split(/(\*\*[^*]+\*\*)/g);
-                      return parts.map((part, j) => {
-                        if (part.startsWith('**') && part.endsWith('**')) {
-                          return <strong key={j} className="text-[#00FF41] font-bold">{part.slice(2, -2)}</strong>;
-                        }
-                        return <span key={j}>{part}</span>;
-                      });
-                    };
+              <div className="font-mono text-sm text-[#EDEDED] leading-relaxed whitespace-pre-wrap">
+                {displayText.split('\n').map((line, i) => {
+                  // Stable key: combine index with report id so React reuses nodes during typewriter
+                  const lineKey = `${activeReport?.report_id || "draft"}-line-${i}`;
+                  // Inline markdown bold rendering helper
+                  const renderInline = (text) => {
+                    const parts = text.split(/(\*\*[^*]+\*\*)/g);
+                    return parts.map((part, j) => {
+                      const partKey = `${lineKey}-part-${j}`;
+                      if (part.startsWith('**') && part.endsWith('**')) {
+                        return <strong key={partKey} className="text-[#00FF41] font-bold">{part.slice(2, -2)}</strong>;
+                      }
+                      return <span key={partKey}>{part}</span>;
+                    });
+                  };
 
-                    if (line.startsWith('# ')) {
-                      return <h2 key={i} className="font-heading text-xl font-bold text-[#00FF41] mt-6 mb-3 uppercase">{renderInline(line.replace('# ', ''))}</h2>;
-                    }
-                    if (line.startsWith('## ')) {
-                      return <h3 key={i} className="font-heading text-lg font-semibold text-[#EDEDED] mt-4 mb-2">{renderInline(line.replace('## ', ''))}</h3>;
-                    }
-                    if (line.startsWith('### ')) {
-                      return <h4 key={i} className="font-heading text-base font-semibold text-[#A1A1AA] mt-3 mb-1">{renderInline(line.replace('### ', ''))}</h4>;
-                    }
-                    if (line.startsWith('- ')) {
-                      return (
-                        <div key={i} className="flex gap-2 ml-2 my-1.5">
-                          <span className="text-[#00FF41] shrink-0">&gt;</span>
-                          <span>{renderInline(line.replace('- ', ''))}</span>
-                        </div>
-                      );
-                    }
-                    if (line.trim() === '') return <br key={i} />;
-                    return <p key={i} className="my-1">{renderInline(line)}</p>;
-                  })}
-                  {generating && <span className="typewriter-cursor inline-block w-2">&nbsp;</span>}
-                </div>
+                  if (line.startsWith('# ')) {
+                    return <h2 key={lineKey} className="font-heading text-xl font-bold text-[#00FF41] mt-6 mb-3 uppercase">{renderInline(line.replace('# ', ''))}</h2>;
+                  }
+                  if (line.startsWith('## ')) {
+                    return <h3 key={lineKey} className="font-heading text-lg font-semibold text-[#EDEDED] mt-4 mb-2">{renderInline(line.replace('## ', ''))}</h3>;
+                  }
+                  if (line.startsWith('### ')) {
+                    return <h4 key={lineKey} className="font-heading text-base font-semibold text-[#A1A1AA] mt-3 mb-1">{renderInline(line.replace('### ', ''))}</h4>;
+                  }
+                  if (line.startsWith('- ')) {
+                    return (
+                      <div key={lineKey} className="flex gap-2 ml-2 my-1.5">
+                        <span className="text-[#00FF41] shrink-0">&gt;</span>
+                        <span>{renderInline(line.replace('- ', ''))}</span>
+                      </div>
+                    );
+                  }
+                  if (line.trim() === '') return <br key={lineKey} />;
+                  return <p key={lineKey} className="my-1">{renderInline(line)}</p>;
+                })}
+                {generating && <span className="typewriter-cursor inline-block w-2">&nbsp;</span>}
+              </div>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-full min-h-[300px] text-center">

@@ -8,8 +8,8 @@ function CustomTooltip({ active, payload, label }) {
   return (
     <div className="bg-black border border-[#00FF41] px-4 py-3">
       <p className="font-mono text-xs text-[#A1A1AA] mb-1">{label}</p>
-      {payload.map((p, i) => (
-        <p key={i} className="font-mono text-xs" style={{ color: p.color }}>
+      {payload.map((p) => (
+        <p key={p.dataKey || p.name} className="font-mono text-xs" style={{ color: p.color }}>
           {p.name}: {p.value}h
         </p>
       ))}
