@@ -1,9 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { API } from "@/App";
 import AppShell from "@/components/AppShell";
-import WeeklyBarChart from "@/components/WeeklyBarChart";
-import ProjectPieChart from "@/components/ProjectPieChart";
 import { Calendar } from "lucide-react";
+
+// Dynamic imports to avoid babel-metadata-plugin crash on recharts
+const WeeklyBarChart = lazy(() => import("@/components/WeeklyBarChart"));
+const ProjectPieChart = lazy(() => import("@/components/ProjectPieChart"));
 
 export default function ReportsPage({ user }) {
   const [weeklyData, setWeeklyData] = useState(null);
@@ -115,13 +117,17 @@ export default function ReportsPage({ user }) {
             <p className="font-mono text-xs text-[#52525B] uppercase tracking-widest mb-4">
               Weekly Overview
             </p>
-            <WeeklyBarChart data={weeklyData?.days || []} />
+            <Suspense fallback={<div className="flex items-center justify-center h-[300px]"><p className="font-mono text-xs text-[#333]">Loading chart...</p></div>}>
+              <WeeklyBarChart data={weeklyData?.days || []} />
+            </Suspense>
           </div>
           <div className="bg-[#0A0A0A] border border-[#333] p-6" data-testid="project-pie-chart">
             <p className="font-mono text-xs text-[#52525B] uppercase tracking-widest mb-4">
               Time by Project — {selectedDate}
             </p>
-            <ProjectPieChart data={projectData} />
+            <Suspense fallback={<div className="flex items-center justify-center h-[300px]"><p className="font-mono text-xs text-[#333]">Loading chart...</p></div>}>
+              <ProjectPieChart data={projectData} />
+            </Suspense>
           </div>
         </div>
       </div>

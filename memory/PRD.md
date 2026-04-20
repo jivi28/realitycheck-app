@@ -24,37 +24,32 @@ Time-tracking app for high-achieving individuals (students, entrepreneurs) with 
 5. Google Auth for frictionless login
 6. Dark mode with neon green (#00FF41) productive / grey break visual contrast
 
-## What's Been Implemented (Feb 19, 2026)
+## What's Been Implemented
+### Feb 19, 2026 - MVP
 - [x] Full backend API (auth, projects CRUD, timer start/stop, auto-break logic, entries, analytics, AI reports)
-- [x] Google OAuth via Emergent Auth
-- [x] Login page with Google Auth button
-- [x] Dashboard with active timer, voice input, stats bar, daily timeline, recent entries
-- [x] Reports page with weekly bar chart + project pie chart + reality score
-- [x] AI Report page with GPT-powered weekly analysis + typewriter effect
-- [x] Projects management page with color coding
-- [x] History page with date filtering and entry management
-- [x] Auto-break gap detection (>60s gaps create break entries automatically)
-- [x] Voice commands via Web Speech API (start/stop tasks by voice)
-- [x] Neo-Brutalist Cyber-Terminal dark theme (Space Grotesk + JetBrains Mono)
+- [x] Google OAuth, Dashboard, Reports, AI Report, Projects, History pages
+- [x] Voice commands via Web Speech API + Whisper fallback
+- [x] Mobile responsive (hamburger menu)
+
+### Apr 20, 2026 - Phase 2: Context-Aware Gap Engine + Committed Time
+- [x] Refactored auto-break: 12h max timer cutoff (auto-stops stale timers)
+- [x] Recurring Schedules collection + CRUD API + frontend page
+- [x] Context-aware gap engine: fills gaps with interleaved break + scheduled + break entries
+- [x] Three entry types color-mapped: task (#00FF41), break (#262626), scheduled (#1E40AF)
+- [x] Fixed recharts babel-metadata-plugin crash via React.lazy() dynamic imports
 
 ## Prioritized Backlog
-### P0 (Critical)
-- All core features implemented
-
 ### P1 (High)
-- Mobile responsive sidebar (hamburger menu)
 - Keyboard shortcuts (Ctrl+S to start, Ctrl+E to stop)
-- Edit existing time entries (change description, project, times)
+- Edit existing time entries
+- Timezone-aware schedule rendering (currently UTC-only)
 
 ### P2 (Medium)
-- Custom wake/sleep time configuration for Reality Score accuracy
+- Custom wake/sleep time for Reality Score
 - Export data (CSV/JSON)
-- Daily/weekly goal setting with progress tracking
-- Pomodoro mode integration
-- Browser notifications for long breaks
+- Pomodoro mode
 
 ### P3 (Nice to have)
 - PWA support for mobile
-- Dark/light theme toggle
-- Time entry templates / favorites
-- Integration with calendar apps
+- Time entry templates
+- Calendar integration

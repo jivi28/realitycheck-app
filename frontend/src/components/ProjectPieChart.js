@@ -1,10 +1,6 @@
-/* eslint-disable */
-// No ES imports to avoid babel-metadata-plugin crash on recharts
-const React = require("react");
-
-function getCharts() {
-  return require("recharts");
-}
+import {
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend
+} from "recharts";
 
 function CustomTooltip({ active, payload }) {
   if (!active || !payload || !payload[0]) return null;
@@ -19,12 +15,10 @@ function CustomTooltip({ active, payload }) {
 
 function renderLabel({ project_name, percent }) {
   if (percent < 0.05) return null;
-  return project_name + " " + (percent * 100).toFixed(0) + "%";
+  return `${project_name} ${(percent * 100).toFixed(0)}%`;
 }
 
 export default function ProjectPieChart({ data }) {
-  const { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } = getCharts();
-
   if (!data || data.length === 0) {
     return (
       <div className="flex items-center justify-center h-[300px]">
@@ -54,11 +48,11 @@ export default function ProjectPieChart({ data }) {
         </Pie>
         <Tooltip content={<CustomTooltip />} />
         <Legend
-          formatter={function(value) {
-            return React.createElement("span", {
-              style: { fontFamily: "JetBrains Mono", fontSize: "10px", color: "#A1A1AA" }
-            }, value);
-          }}
+          formatter={(value) => (
+            <span style={{ fontFamily: "JetBrains Mono", fontSize: "10px", color: "#A1A1AA" }}>
+              {value}
+            </span>
+          )}
         />
       </PieChart>
     </ResponsiveContainer>
