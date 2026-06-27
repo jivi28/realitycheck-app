@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Heart, MinusCircle, Moon, MoonStar } from "lucide-react";
 import { CATEGORIES, projectCategory } from "@/lib/categories";
 
@@ -10,6 +11,8 @@ function entryCategory(entry, projectsById) {
 }
 
 export default function StatsBar({ dailyData, currentTimer, projects = [], onReconcile }) {
+  // "all" = overall Reality Score; otherwise a category id (focus/health/...).
+  const [filter, setFilter] = useState("all");
   const baseProductive = dailyData?.productive_seconds || 0;
   const breakTime = dailyData?.break_seconds || 0;
   const scheduled = dailyData?.scheduled_seconds || 0;
@@ -50,30 +53,49 @@ export default function StatsBar({ dailyData, currentTimer, projects = [], onRec
     return "0m";
   };
 
-  const realityScore = AWAKE_HOURS > 0 ? Math.round((onPurpose / 3600 / AWAKE_HOURS) * 100) : 0;
-  const scoreColor = realityScore >= 50 ? "#00FF41" : realityScore >= 25 ? "#FFD600" : "#FF003C";
   const isLive = liveElapsed > 0;
+
+  // The headline can show the overall score or a single category, picked via the
+  // dropdown. Denominator is always the 16h awake day, so every category stays on
+  // the same scale and the per-category scores sum toward the overall Reality Score.
+  const filterCat = filter === "all" ? null : CATEGORIES.find((c) => c.id === filter);
+  const displaySeconds = filterCat ? catSeconds[filter] || 0 : onPurpose;
+  const displayScore = AWAKE_HOURS > 0 ? Math.round((displaySeconds / 3600 / AWAKE_HOURS) * 100) : 0;
+  const displayColor = filterCat
+    ? filterCat.color
+    : displayScore >= 50 ? "#00FF41" : displayScore >= 25 ? "#FFD600" : "#FF003C";
 
   return (
     <div className="space-y-3" data-testid="stats-bar">
       {/* Reality Score Headline */}
       <div className="bg-[#0A0A0A] border border-[#333] p-5 text-center" data-testid="stat-reality-score">
         <div className="flex items-center justify-center gap-2 mb-1">
-          <p className="font-mono text-[10px] text-[#71717A] uppercase tracking-widest">Reality Score</p>
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            data-testid="score-filter"
+            className="appearance-none bg-transparent text-center font-mono text-[10px] uppercase tracking-widest text-[#71717A] hover:text-[#A1A1AA] outline-none cursor-pointer transition-colors"
+          >
+            <option value="all">Reality Score ▾</option>
+            {CATEGORIES.map((c) => (
+              <option key={c.id} value={c.id}>{c.label} Score ▾</option>
+            ))}
+          </select>
           {isLive && (
             <span className="font-mono text-[9px] text-[#00FF41] uppercase tracking-widest animate-pulse">● live</span>
           )}
         </div>
-        <p className="font-heading text-5xl font-bold" style={{ color: scoreColor }}>
-          {realityScore}%
+        <p className="font-heading text-5xl font-bold" style={{ color: displayColor }}>
+          {displayScore}%
         </p>
-        <p className="font-mono text-[10px] text-[#71717A] mt-1.5">
-          {formatHours(onPurpose)} lived on purpose of {AWAKE_HOURS}h awake
+        <p className="font-mono text-[10px] text-[#52525B] mt-1.5">
+          <span className="text-[13px] font-bold tabular-nums" style={{ color: displayColor }}>{formatHours(displaySeconds)}</span>
+          {" "}{filterCat ? filterCat.label.toLowerCase() : "lived on purpose"} of {AWAKE_HOURS}h awake
         </p>
         <div className="w-full h-1.5 bg-[#1A1A1A] mt-3 max-w-xs mx-auto">
           <div
             className="h-full transition-all duration-500"
-            style={{ width: `${Math.min(realityScore, 100)}%`, backgroundColor: scoreColor }}
+            style={{ width: `${Math.min(displayScore, 100)}%`, backgroundColor: displayColor }}
           />
         </div>
       </div>
@@ -114,11 +136,20 @@ export default function StatsBar({ dailyData, currentTimer, projects = [], onRec
           <span className="font-mono text-[10px] text-[#71717A] uppercase tracking-widest">On purpose</span>
           {breakdown.map((c) => {
             const Icon = c.Icon;
+            const active = filter === c.id;
+            const dim = filterCat && !active;
             return (
-              <span key={c.id} className="flex items-center gap-1.5 font-mono text-[11px] tabular-nums" style={{ color: c.color }}>
+              <button
+                key={c.id}
+                onClick={() => setFilter(active ? "all" : c.id)}
+                data-testid={`breakdown-cat-${c.id}`}
+                className={`flex items-center gap-1.5 font-mono text-[11px] tabular-nums transition-all ${active ? "font-bold underline underline-offset-4" : "hover:opacity-80"} ${dim ? "opacity-40" : ""}`}
+                style={{ color: c.color }}
+                title={active ? "Show overall score" : `Show ${c.label} score`}
+              >
                 <Icon className="w-3 h-3" />
                 {c.label} {formatHours(catSeconds[c.id])}
-              </span>
+              </button>
             );
           })}
         </div>

@@ -389,48 +389,6 @@ export default function DashboardPage({ user }) {
           suggestions={goalSuggestions}
         />
 
-        {/* Quick Actions — idle only */}
-        {!currentTimer && (
-          <div className="space-y-2">
-            {lastProductiveEntry && (
-              <button
-                onClick={handleContinue}
-                className="w-full flex items-center gap-3 border border-[#333] bg-[#0A0A0A] p-3 hover:border-[#555] transition-colors group"
-              >
-                <Play className="w-3.5 h-3.5 text-[#00FF41] shrink-0" />
-                <span className="font-mono text-xs text-[#A1A1AA] group-hover:text-[#EDEDED] truncate transition-colors">
-                  Continue: {lastProductiveEntry.description}
-                  {lastProductiveEntry.project_name && (
-                    <span className="ml-2" style={{ color: lastProductiveEntry.project_color || "#666" }}>
-                      · {lastProductiveEntry.project_name}
-                    </span>
-                  )}
-                </span>
-              </button>
-            )}
-            {projects.length > 0 && (
-              <div className="space-y-1.5">
-                <span className="font-mono text-[10px] text-[#52525B] uppercase tracking-widest">Projects · click to start or edit</span>
-                <div className="flex flex-wrap gap-2">
-                  {projects.map((p) => (
-                    <ProjectChip
-                      key={p.project_id}
-                      project={p}
-                      startLabel={projectHasEntriesToday(p.project_id) ? "Continue" : "Start"}
-                      onStart={handleQuickStart}
-                      onUpdate={updateProject}
-                      onDelete={deleteProject}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Stats */}
-        <StatsBar dailyData={dailyData} currentTimer={currentTimer} projects={projects} onReconcile={() => setReconcileOpen(true)} />
-
         {/* Daily Goals */}
         <div className="bg-[#0A0A0A] border border-[#333] p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
@@ -623,6 +581,48 @@ export default function DashboardPage({ user }) {
             </div>
           )}
         </div>
+
+        {/* Quick Actions — idle only */}
+        {!currentTimer && (
+          <div className="space-y-2">
+            {lastProductiveEntry && (
+              <button
+                onClick={handleContinue}
+                className="w-full flex items-center gap-3 border border-[#333] bg-[#0A0A0A] p-3 hover:border-[#555] transition-colors group"
+              >
+                <Play className="w-3.5 h-3.5 text-[#00FF41] shrink-0" />
+                <span className="font-mono text-xs text-[#A1A1AA] group-hover:text-[#EDEDED] truncate transition-colors">
+                  Continue: {lastProductiveEntry.description}
+                  {lastProductiveEntry.project_name && (
+                    <span className="ml-2" style={{ color: lastProductiveEntry.project_color || "#666" }}>
+                      · {lastProductiveEntry.project_name}
+                    </span>
+                  )}
+                </span>
+              </button>
+            )}
+            {projects.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="font-mono text-[10px] text-[#52525B] uppercase tracking-widest">Projects · click to start or edit</span>
+                <div className="flex flex-wrap gap-2">
+                  {projects.map((p) => (
+                    <ProjectChip
+                      key={p.project_id}
+                      project={p}
+                      startLabel={projectHasEntriesToday(p.project_id) ? "Continue" : "Start"}
+                      onStart={handleQuickStart}
+                      onUpdate={updateProject}
+                      onDelete={deleteProject}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Stats */}
+        <StatsBar dailyData={dailyData} currentTimer={currentTimer} projects={projects} onReconcile={() => setReconcileOpen(true)} />
 
         {/* Forgot to track? Backfill a past entry (secondary action) */}
         <LogPastTimeForm projects={projects} suggestions={goalSuggestions} onLogged={fetchAll} />

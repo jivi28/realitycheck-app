@@ -161,7 +161,7 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop, o
           </div>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           <div className="relative">
             <input
               ref={inputRef}
@@ -170,9 +170,9 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop, o
               onChange={(e) => { setDescription(e.target.value); setShowSuggest(true); }}
               onFocus={() => setShowSuggest(true)}
               onBlur={() => setTimeout(() => setShowSuggest(false), 150)}
-              placeholder="What are you working on?"
+              placeholder="Track something else…"
               data-testid="task-description-input"
-              className="w-full bg-transparent border-b border-[#333] focus:border-[#00FF41] px-0 py-2.5 md:py-3 font-mono text-sm text-[#EDEDED] placeholder:text-[#333] outline-none transition-colors"
+              className="w-full bg-transparent border-b border-[#222] focus:border-[#00FF41] px-0 py-1.5 font-mono text-xs text-[#EDEDED] placeholder:text-[#3A3A3A] outline-none transition-colors"
               onKeyDown={(e) => { if (e.key === "Enter") handleStart(); if (e.key === "Escape") setShowSuggest(false); }}
             />
             {showSuggest && (
@@ -199,7 +199,7 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop, o
               <button
                 onClick={() => setShowProjectDropdown(!showProjectDropdown)}
                 data-testid="project-selector"
-                className="flex items-center gap-2 px-3 py-2.5 border border-[#333] font-mono text-xs text-[#A1A1AA] hover:border-[#555] transition-colors duration-75 min-w-[100px] md:min-w-[120px]"
+                className="flex items-center gap-2 px-3 py-2 border border-[#333] font-mono text-xs text-[#A1A1AA] hover:border-[#555] transition-colors duration-75 min-w-[100px] md:min-w-[120px]"
               >
                 {selectedProject && (
                   <div className="w-2.5 h-2.5" style={{ backgroundColor: selectedProject.color }} />
@@ -232,9 +232,9 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop, o
             <button
               onClick={handleStart}
               data-testid="start-timer-btn"
-              className="flex items-center gap-2 bg-[#00FF41] text-black font-mono text-xs font-bold uppercase tracking-wider px-4 md:px-5 py-2.5 md:py-3 hover:bg-[#00CC33] hover:shadow-[0_0_15px_rgba(0,255,65,0.5)] transition-colors duration-75"
+              className="flex items-center gap-2 bg-[#00FF41] text-black font-mono text-xs font-bold uppercase tracking-wider px-4 py-2 hover:bg-[#00CC33] hover:shadow-[0_0_15px_rgba(0,255,65,0.5)] transition-colors duration-75"
             >
-              <Play className="w-4 h-4" />
+              <Play className="w-3.5 h-3.5" />
               Start
             </button>
           </div>
