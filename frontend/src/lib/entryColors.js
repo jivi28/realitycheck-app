@@ -4,6 +4,8 @@
  * - break (Unaccounted): Muted Grey (#262626)
  * - scheduled (Committed Time): Deep Blue (#1E40AF) or schedule color
  */
+import { categoryMeta } from "@/lib/categories";
+
 export function getEntryColor(entry) {
   const entryType = entry.entry_type || (entry.is_break ? "break" : "task");
 
@@ -13,8 +15,10 @@ export function getEntryColor(entry) {
   if (entryType === "break" || entry.is_break) {
     return "#262626";
   }
-  // task
-  return entry.project_color || "#00FF41";
+  // task — prefer the project color, else a reconciled entry's category color
+  if (entry.project_color) return entry.project_color;
+  if (entry.category) return categoryMeta(entry.category).color;
+  return "#00FF41";
 }
 
 export function getEntryLabel(entry) {

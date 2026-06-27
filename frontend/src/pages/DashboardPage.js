@@ -10,7 +10,8 @@ import RecentEntries from "@/components/RecentEntries";
 import ProjectChip from "@/components/ProjectChip";
 import LogPastTimeForm from "@/components/LogPastTimeForm";
 import GoalCard from "@/components/GoalCard";
-import { GOALS_KEY, normalizeGoals, normalizeGoal, computePacing, computeGoalProgress, computeSubgoalProgress, isGoalActive, todayStr } from "@/lib/goals";
+import ReconcileSheet from "@/components/ReconcileSheet";
+import { GOALS_KEY, normalizeGoals, normalizeGoal, computePacing, computeGoalProgress, computeSubgoalProgress, isGoalActive, todayStr, formatGoalTime } from "@/lib/goals";
 
 export default function DashboardPage({ user }) {
   const [currentTimer, setCurrentTimer] = useState(null);
@@ -30,6 +31,7 @@ export default function DashboardPage({ user }) {
   const [newGoalCarryOver, setNewGoalCarryOver] = useState(true);
   const [editingGoal, setEditingGoal] = useState(null);
   const [expandedGoals, setExpandedGoals] = useState(() => new Set());
+  const [reconcileOpen, setReconcileOpen] = useState(false);
 
   const timerInputRef = useRef(null);
   const today = new Date().toISOString().split("T")[0];
@@ -305,6 +307,18 @@ export default function DashboardPage({ user }) {
   const idleMinutes = computeIdleMinutes();
   const showIdleAlert = idleMinutes !== null && idleMinutes >= 10;
 
+  // The "away" window to reconcile: from the last completed entry (or 7am if
+  // none) up to now (or the running timer's start). Clamped to the awake day.
+  const reconcileWindow = (() => {
+    const completed = todayEntries.filter((e) => e.end_time);
+    const lastEnd = completed.length
+      ? completed.reduce((latest, e) => (new Date(e.end_time) > latest ? new Date(e.end_time) : latest), new Date(0))
+      : (() => { const d = new Date(); d.setHours(7, 0, 0, 0); return d; })();
+    const endMs = currentTimer ? new Date(currentTimer.start_time).getTime() : Date.now();
+    const seconds = Math.max(0, Math.min(16 * 3600, Math.floor((endMs - lastEnd.getTime()) / 1000)));
+    return { gapStart: lastEnd.toISOString(), gapEnd: new Date(endMs).toISOString(), seconds };
+  })();
+
   // Continue last task
   const lastProductiveEntry = !currentTimer
     ? todayEntries
@@ -337,8 +351,12 @@ export default function DashboardPage({ user }) {
     return items;
   });
 
-  // Aggregate pacing across goals + subgoals
+  // Aggregate pacing across goals + subgoals, with the over/ahead amount
   const pacing = computePacing(goals, goalCtx);
+  const pacingAmount =
+    pacing.status === "over" ? `+${formatGoalTime(pacing.overSeconds)}`
+    : pacing.status === "ahead" ? `−${formatGoalTime(pacing.aheadSeconds)}`
+    : "";
   const pacingMeta = {
     ahead: { text: "⚡ Ahead of pace", color: "#00FF41" },
     over: { text: "⏳ Running over", color: "#FF8C00" },
@@ -348,13 +366,14 @@ export default function DashboardPage({ user }) {
   return (
     <AppShell user={user} activePage="dashboard">
       <div className="space-y-4 md:space-y-6">
-        {/* Idle Alert */}
+        {/* Idle Alert — tap to account for the gap */}
         {showIdleAlert && (
           <button
-            onClick={() => timerInputRef.current?.focus()}
-            className="w-full text-left border border-[#FF8C00]/40 bg-[#FF8C00]/5 p-3 font-mono text-xs text-[#FF8C00] animate-pulse hover:bg-[#FF8C00]/10 transition-colors"
+            onClick={() => setReconcileOpen(true)}
+            data-testid="idle-reconcile-bar"
+            className="w-full text-left border border-[#FF8C00]/40 bg-[#FF8C00]/5 p-3 font-mono text-xs text-[#FF8C00] hover:bg-[#FF8C00]/10 transition-colors"
           >
-            ⚡ Untracked for {idleMinutes}m — what are you working on? Click to start tracking.
+            ⚡ Untracked for {idleMinutes}m — tap to account for it.
           </button>
         )}
 
@@ -410,7 +429,7 @@ export default function DashboardPage({ user }) {
         )}
 
         {/* Stats */}
-        <StatsBar dailyData={dailyData} currentTimer={currentTimer} projects={projects} />
+        <StatsBar dailyData={dailyData} currentTimer={currentTimer} projects={projects} onReconcile={() => setReconcileOpen(true)} />
 
         {/* Daily Goals */}
         <div className="bg-[#0A0A0A] border border-[#333] p-4 space-y-3">
@@ -423,7 +442,7 @@ export default function DashboardPage({ user }) {
                   className="font-mono text-[10px] uppercase tracking-wider shrink-0"
                   style={{ color: pacingMeta.color }}
                 >
-                  {pacingMeta.text}
+                  {pacingMeta.text}{pacingAmount && ` ${pacingAmount}`}
                 </span>
               )}
             </div>
@@ -618,6 +637,15 @@ export default function DashboardPage({ user }) {
           </div>
         </div>
       </div>
+
+      <ReconcileSheet
+        open={reconcileOpen}
+        awaySeconds={reconcileWindow.seconds}
+        gapStart={reconcileWindow.gapStart}
+        gapEnd={reconcileWindow.gapEnd}
+        onClose={() => setReconcileOpen(false)}
+        onLogged={fetchAll}
+      />
     </AppShell>
   );
 }

@@ -6,11 +6,11 @@ const CLOUD_STATE_URL = `${SUPABASE_URL}/rest/v1/realitycheck_shared_state`;
 const USE_CLOUD_STORAGE = Boolean(SUPABASE_URL && SUPABASE_KEY);
 
 const DEFAULT_PROJECTS = [
-  { project_id: "proj_deep_work", name: "Deep Work", color: "#00FF41", is_default: true, category: "focus" },
-  { project_id: "proj_study", name: "Study", color: "#00CC33", is_default: false, category: "focus" },
-  { project_id: "proj_coding", name: "Coding", color: "#33FF66", is_default: false, category: "focus" },
-  { project_id: "proj_exercise", name: "Exercise", color: "#FFD600", is_default: false, category: "health" },
-  { project_id: "proj_reading", name: "Reading", color: "#00BFFF", is_default: false, category: "rest" },
+  { project_id: "proj_deep_work", name: "Deep Work", color: "#00FF41", is_default: true, category: "focus", icon: "briefcase" },
+  { project_id: "proj_study", name: "Study", color: "#00CC33", is_default: false, category: "focus", icon: "book" },
+  { project_id: "proj_coding", name: "Coding", color: "#33FF66", is_default: false, category: "focus", icon: "code" },
+  { project_id: "proj_exercise", name: "Exercise", color: "#FFD600", is_default: false, category: "health", icon: "dumbbell" },
+  { project_id: "proj_reading", name: "Reading", color: "#00BFFF", is_default: false, category: "rest", icon: "book" },
 ].map((project) => ({
   ...project,
   user_id: USER_ID,
@@ -301,6 +301,7 @@ async function handleApiRequest(path, method, request) {
       name: body.name,
       color: body.color || "#00FF41",
       category: body.category || "focus",
+      icon: body.icon || null,
       is_default: false,
       created_at: new Date().toISOString(),
     };
@@ -394,17 +395,21 @@ async function handleApiRequest(path, method, request) {
     if (duration <= 0) return json({ detail: "End time must be after start time" }, 400);
     if (duration > 24 * 3600) return json({ detail: "Entry can't be longer than 24 hours" }, 400);
     const defaultProject = state.projects.find((project) => project.is_default);
+    const isBreak = Boolean(body.is_break);
     const entry = {
       entry_id: id("entry"),
       user_id: USER_ID,
-      project_id: body.project_id || defaultProject?.project_id || null,
+      // Reconciled/category time may have no project; only fall back to default
+      // when neither a project nor a category was supplied.
+      project_id: body.project_id || (body.category ? null : defaultProject?.project_id || null),
+      category: body.category || null,
       description: (body.description && body.description.trim()) || "Logged time",
       start_time: start.toISOString(),
       end_time: end.toISOString(),
       duration,
-      is_break: false,
+      is_break: isBreak,
       is_running: false,
-      entry_type: "task",
+      entry_type: isBreak ? "break" : "task",
       schedule_id: null,
       manual: true,
     };

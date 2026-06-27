@@ -141,13 +141,16 @@ export function isSubgoalActive(sub, currentTimer) {
 export function computePacing(goals, ctx) {
   let early = 0;
   let over = 0;
+  let aheadSeconds = 0; // total time saved on items finished early
+  let overSeconds = 0;  // total time spent past target (done-over + in-progress)
   const tally = (item, prog) => {
     if (!prog.target) return;
     if (item.done) {
-      if (prog.seconds < prog.target - 1) early += 1;
-      else if (prog.seconds > prog.target + 1) over += 1;
+      if (prog.seconds < prog.target - 1) { early += 1; aheadSeconds += prog.target - prog.seconds; }
+      else if (prog.seconds > prog.target + 1) { over += 1; overSeconds += prog.seconds - prog.target; }
     } else if (prog.over > 0) {
       over += 1;
+      overSeconds += prog.over;
     }
   };
   for (const goal of goals) {
@@ -159,5 +162,5 @@ export function computePacing(goals, ctx) {
   let status = "onpace";
   if (early > over && early > 0) status = "ahead";
   else if (over > early && over > 0) status = "over";
-  return { status, early, over };
+  return { status, early, over, aheadSeconds, overSeconds };
 }

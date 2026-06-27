@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Play, Pencil, Trash2, Check, X, ChevronDown } from "lucide-react";
 import { CATEGORIES, projectCategory } from "@/lib/categories";
+import { PROJECT_ICONS, projectIconComp } from "@/lib/projectIcons";
 
 const PRESET_COLORS = [
   "#00FF41", "#00CC33", "#33FF66", "#FFD600", "#00BFFF",
@@ -19,6 +20,7 @@ export default function ProjectChip({ project, startLabel, onStart, onUpdate, on
   const [name, setName] = useState(project.name);
   const [color, setColor] = useState(project.color);
   const [category, setCategory] = useState(projectCategory(project));
+  const [icon, setIcon] = useState(project.icon || null);
   const ref = useRef(null);
 
   useEffect(() => {
@@ -39,15 +41,18 @@ export default function ProjectChip({ project, startLabel, onStart, onUpdate, on
     setName(project.name);
     setColor(project.color);
     setCategory(projectCategory(project));
+    setIcon(project.icon || null);
     setEditing(true);
     setConfirmDelete(false);
   };
 
   const saveEdit = () => {
     if (!name.trim()) return;
-    onUpdate(project.project_id, { name: name.trim(), color, category });
+    onUpdate(project.project_id, { name: name.trim(), color, category, icon });
     closeAll();
   };
+
+  const ChipIcon = projectIconComp(project.icon);
 
   return (
     <div className="relative" ref={ref}>
@@ -58,7 +63,9 @@ export default function ProjectChip({ project, startLabel, onStart, onUpdate, on
           open ? "border-[#555] text-[#EDEDED]" : "border-[#333] text-[#A1A1AA] hover:border-[#555] hover:text-[#EDEDED]"
         }`}
       >
-        <div className="w-2 h-2 shrink-0" style={{ backgroundColor: project.color }} />
+        {ChipIcon
+          ? <ChipIcon className="w-3 h-3 shrink-0" style={{ color: project.color }} />
+          : <div className="w-2 h-2 shrink-0" style={{ backgroundColor: project.color }} />}
         {project.name}
         <ChevronDown className="w-3 h-3 text-[#52525B]" />
       </button>
@@ -86,18 +93,34 @@ export default function ProjectChip({ project, startLabel, onStart, onUpdate, on
                 ))}
               </div>
               <div className="flex flex-wrap gap-1">
-                {CATEGORIES.map((cat) => (
+                {CATEGORIES.map((cat) => {
+                  const CatIcon = cat.Icon;
+                  return (
+                    <button
+                      key={cat.id}
+                      onClick={() => setCategory(cat.id)}
+                      title={cat.hint}
+                      className={`flex items-center gap-1 border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider transition-colors ${
+                        category === cat.id ? "" : "border-[#222] text-[#52525B] hover:text-[#A1A1AA]"
+                      }`}
+                      style={category === cat.id ? { borderColor: cat.color, color: cat.color } : undefined}
+                    >
+                      <CatIcon className="w-2.5 h-2.5" style={{ color: cat.color }} />
+                      {cat.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex flex-wrap gap-1" data-testid="chip-icon-picker">
+                {PROJECT_ICONS.map(({ key, Icon }) => (
                   <button
-                    key={cat.id}
-                    onClick={() => setCategory(cat.id)}
-                    title={cat.hint}
-                    className={`flex items-center gap-1 border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider transition-colors ${
-                      category === cat.id ? "" : "border-[#222] text-[#52525B] hover:text-[#A1A1AA]"
-                    }`}
-                    style={category === cat.id ? { borderColor: cat.color, color: cat.color } : undefined}
+                    key={key}
+                    onClick={() => setIcon(icon === key ? null : key)}
+                    title={key}
+                    className={`w-5 h-5 flex items-center justify-center border transition-colors ${icon === key ? "border-current" : "border-[#222] text-[#52525B] hover:text-[#A1A1AA]"}`}
+                    style={icon === key ? { color } : undefined}
                   >
-                    <span className="w-1.5 h-1.5" style={{ backgroundColor: cat.color }} />
-                    {cat.label}
+                    <Icon className="w-3 h-3" />
                   </button>
                 ))}
               </div>

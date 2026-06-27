@@ -7,6 +7,7 @@ import {
   isSubgoalActive,
   formatGoalTime,
 } from "@/lib/goals";
+import { projectIconComp } from "@/lib/projectIcons";
 
 // Inline editor for the TARGET (time needed), in hours. Prefilled with the
 // current target so you can extend or shrink it. (Worked time is logged via
@@ -143,7 +144,12 @@ export default function GoalCard({
             <span className="font-mono text-[9px] text-[#00FF41] uppercase tracking-widest shrink-0 animate-pulse">● live</span>
           )}
           {!active && goal.done && <span className="text-[#00FF41] text-xs shrink-0">✓</span>}
-          {linkedProject && <div className="w-2 h-2 shrink-0" style={{ backgroundColor: linkedProject.color }} />}
+          {linkedProject && (() => {
+            const PIcon = projectIconComp(linkedProject.icon);
+            return PIcon
+              ? <PIcon className="w-3 h-3 shrink-0" style={{ color: linkedProject.color }} />
+              : <div className="w-2 h-2 shrink-0" style={{ backgroundColor: linkedProject.color }} />;
+          })()}
           <span className={`font-mono text-xs truncate ${goal.done ? "text-[#00FF41] line-through" : active ? "text-[#EDEDED]" : "text-[#A1A1AA]"}`}>
             {goal.label}
           </span>

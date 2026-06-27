@@ -4,6 +4,7 @@ import AppShell from "@/components/AppShell";
 import { Plus, Trash2, Edit2, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { CATEGORIES, categoryMeta, projectCategory } from "@/lib/categories";
+import { PROJECT_ICONS, projectIconComp } from "@/lib/projectIcons";
 
 const PRESET_COLORS = [
   "#00FF41", "#00CC33", "#33FF66", "#FFD600", "#00BFFF",
@@ -15,10 +16,12 @@ export default function ProjectsPage({ user }) {
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState("#00FF41");
   const [newCategory, setNewCategory] = useState("focus");
+  const [newIcon, setNewIcon] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
   const [editColor, setEditColor] = useState("");
   const [editCategory, setEditCategory] = useState("focus");
+  const [editIcon, setEditIcon] = useState(null);
 
   const fetchProjects = async () => {
     try {
@@ -39,10 +42,10 @@ export default function ProjectsPage({ user }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ name: newName.trim(), color: newColor, category: newCategory }),
+        body: JSON.stringify({ name: newName.trim(), color: newColor, category: newCategory, icon: newIcon }),
       });
       if (!res.ok) throw new Error("Failed to create");
-      setNewName(""); setNewCategory("focus");
+      setNewName(""); setNewCategory("focus"); setNewIcon(null);
       toast.success("Project created");
       fetchProjects();
     } catch (err) {
@@ -56,7 +59,7 @@ export default function ProjectsPage({ user }) {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ name: editName, color: editColor, category: editCategory }),
+        body: JSON.stringify({ name: editName, color: editColor, category: editCategory, icon: editIcon }),
       });
       setEditingId(null);
       toast.success("Project updated");
@@ -84,6 +87,7 @@ export default function ProjectsPage({ user }) {
     setEditName(project.name);
     setEditColor(project.color);
     setEditCategory(projectCategory(project));
+    setEditIcon(project.icon || null);
   };
 
   return (
@@ -115,18 +119,37 @@ export default function ProjectsPage({ user }) {
               onKeyDown={(e) => e.key === "Enter" && createProject()}
             />
             <div className="flex flex-wrap gap-1.5" data-testid="new-project-category">
-              {CATEGORIES.map((cat) => (
+              {CATEGORIES.map((cat) => {
+                const CatIcon = cat.Icon;
+                return (
+                  <button
+                    key={cat.id}
+                    onClick={() => setNewCategory(cat.id)}
+                    title={cat.hint}
+                    className={`flex items-center gap-1.5 border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors ${
+                      newCategory === cat.id ? "text-[#EDEDED]" : "border-[#222] text-[#52525B] hover:text-[#A1A1AA]"
+                    }`}
+                    style={newCategory === cat.id ? { borderColor: cat.color, color: cat.color } : undefined}
+                  >
+                    <CatIcon className="w-3 h-3" style={{ color: cat.color }} />
+                    {cat.label}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Icon picker */}
+            <div className="flex flex-wrap gap-1.5" data-testid="new-project-icon">
+              {PROJECT_ICONS.map(({ key, Icon }) => (
                 <button
-                  key={cat.id}
-                  onClick={() => setNewCategory(cat.id)}
-                  title={cat.hint}
-                  className={`flex items-center gap-1.5 border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors ${
-                    newCategory === cat.id ? "text-[#EDEDED]" : "border-[#222] text-[#52525B] hover:text-[#A1A1AA]"
+                  key={key}
+                  onClick={() => setNewIcon(newIcon === key ? null : key)}
+                  title={key}
+                  className={`w-7 h-7 flex items-center justify-center border transition-colors ${
+                    newIcon === key ? "border-current" : "border-[#222] text-[#52525B] hover:text-[#A1A1AA]"
                   }`}
-                  style={newCategory === cat.id ? { borderColor: cat.color, color: cat.color } : undefined}
+                  style={newIcon === key ? { color: newColor } : undefined}
                 >
-                  <span className="w-2 h-2" style={{ backgroundColor: cat.color }} />
-                  {cat.label}
+                  <Icon className="w-3.5 h-3.5" />
                 </button>
               ))}
             </div>
@@ -197,6 +220,19 @@ export default function ProjectsPage({ user }) {
                       <option key={cat.id} value={cat.id}>{cat.label}</option>
                     ))}
                   </select>
+                  <div className="flex gap-1 max-w-[160px] overflow-x-auto" data-testid="edit-project-icon">
+                    {PROJECT_ICONS.map(({ key, Icon }) => (
+                      <button
+                        key={key}
+                        onClick={() => setEditIcon(editIcon === key ? null : key)}
+                        title={key}
+                        className={`w-6 h-6 shrink-0 flex items-center justify-center border ${editIcon === key ? "border-current" : "border-[#222] text-[#52525B] hover:text-[#A1A1AA]"}`}
+                        style={editIcon === key ? { color: editColor } : undefined}
+                      >
+                        <Icon className="w-3 h-3" />
+                      </button>
+                    ))}
+                  </div>
                   <button
                     onClick={() => updateProject(project.project_id)}
                     data-testid="save-project-btn"
@@ -214,10 +250,12 @@ export default function ProjectsPage({ user }) {
                 </>
               ) : (
                 <>
-                  <div
-                    className="w-4 h-4 shrink-0"
-                    style={{ backgroundColor: project.color }}
-                  />
+                  {(() => {
+                    const PIcon = projectIconComp(project.icon);
+                    return PIcon
+                      ? <PIcon className="w-4 h-4 shrink-0" style={{ color: project.color }} />
+                      : <div className="w-4 h-4 shrink-0" style={{ backgroundColor: project.color }} />;
+                  })()}
                   <span className="font-mono text-sm text-[#EDEDED]">
                     {project.name}
                   </span>
