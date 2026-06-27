@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Play, Plus, X, Pencil, ChevronDown } from "lucide-react";
+import { Play, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { API } from "@/App";
 import AppShell from "@/components/AppShell";
@@ -9,25 +9,27 @@ import StatsBar from "@/components/StatsBar";
 import RecentEntries from "@/components/RecentEntries";
 import ProjectChip from "@/components/ProjectChip";
 import LogPastTimeForm from "@/components/LogPastTimeForm";
-
-const GOALS_KEY = "rc_goals";
+import GoalCard from "@/components/GoalCard";
+import { GOALS_KEY, normalizeGoals, normalizeGoal, computePacing, computeGoalProgress, computeSubgoalProgress, isGoalActive, todayStr } from "@/lib/goals";
 
 export default function DashboardPage({ user }) {
   const [currentTimer, setCurrentTimer] = useState(null);
   const [dailyData, setDailyData] = useState(null);
   const [todayEntries, setTodayEntries] = useState([]);
+  const [allEntries, setAllEntries] = useState([]);
   const [projects, setProjects] = useState([]);
   const [, setTick] = useState(0); // 1-second tick for real-time goal progress
 
   const [goals, setGoals] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(GOALS_KEY)) || []; } catch { return []; }
+    try { return normalizeGoals(JSON.parse(localStorage.getItem(GOALS_KEY)) || []); } catch { return []; }
   });
   const [showGoalForm, setShowGoalForm] = useState(false);
   const [newGoalLabel, setNewGoalLabel] = useState("");
   const [newGoalHours, setNewGoalHours] = useState("");
   const [newGoalProjectId, setNewGoalProjectId] = useState("");
+  const [newGoalCarryOver, setNewGoalCarryOver] = useState(false);
   const [editingGoal, setEditingGoal] = useState(null);
-  const [goalProjectMenuId, setGoalProjectMenuId] = useState(null);
+  const [expandedGoals, setExpandedGoals] = useState(() => new Set());
 
   const timerInputRef = useRef(null);
   const today = new Date().toISOString().split("T")[0];
@@ -41,10 +43,11 @@ export default function DashboardPage({ user }) {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [timerRes, dailyRes, entriesRes, projRes] = await Promise.all([
+      const [timerRes, dailyRes, entriesRes, allRes, projRes] = await Promise.all([
         fetch(`${API}/timer/current`, { credentials: "include" }),
         fetch(`${API}/analytics/daily?date=${today}`, { credentials: "include" }),
         fetch(`${API}/entries?date=${today}&limit=20`, { credentials: "include" }),
+        fetch(`${API}/entries?limit=5000`, { credentials: "include" }),
         fetch(`${API}/projects`, { credentials: "include" }),
       ]);
 
@@ -56,6 +59,9 @@ export default function DashboardPage({ user }) {
 
       const entries = await entriesRes.json();
       setTodayEntries(entries);
+
+      const all = await allRes.json();
+      setAllEntries(Array.isArray(all) ? all : []);
 
       const projs = await projRes.json();
       setProjects(projs);
@@ -115,38 +121,29 @@ export default function DashboardPage({ user }) {
     localStorage.setItem(GOALS_KEY, JSON.stringify(updated));
   };
 
+  // Context for goal time math (live elapsed updates via the 1s tick)
+  const goalCtx = { allEntries, currentTimer };
+  const goalSecondsNow = (goal) => computeGoalProgress(goal, goalCtx).seconds;
+  const subgoalSecondsNow = (goal, sub) => computeSubgoalProgress(goal, sub, goalCtx).seconds;
+
   const addGoal = () => {
     const hrs = parseFloat(newGoalHours);
     if (!newGoalLabel.trim() || !hrs || hrs <= 0) return;
     saveGoals([
       ...goals,
-      { id: Date.now().toString(), label: newGoalLabel.trim(), targetHours: hrs, projectId: newGoalProjectId || null },
+      normalizeGoal({
+        id: Date.now().toString(),
+        label: newGoalLabel.trim(),
+        targetHours: hrs,
+        projectId: newGoalProjectId || null,
+        carryOver: newGoalCarryOver,
+        startDate: todayStr(),
+      }),
     ]);
-    setNewGoalLabel(""); setNewGoalHours(""); setNewGoalProjectId(""); setShowGoalForm(false);
+    setNewGoalLabel(""); setNewGoalHours(""); setNewGoalProjectId(""); setNewGoalCarryOver(false); setShowGoalForm(false);
   };
 
-  // Returns seconds logged toward a goal, including live elapsed if timer matches
-  const getGoalSeconds = (goal) => {
-    if (goal.projectId) {
-      const completed = todayEntries
-        .filter((e) => e.project_id === goal.projectId && !e.is_break && !e.is_running)
-        .reduce((s, e) => s + (e.duration || 0), 0);
-      if (currentTimer && currentTimer.project_id === goal.projectId) {
-        const elapsed = Math.floor((Date.now() - new Date(currentTimer.start_time).getTime()) / 1000);
-        return completed + elapsed;
-      }
-      return completed;
-    }
-    // No project: use total productive seconds from analytics
-    const base = dailyData?.productive_seconds || 0;
-    if (currentTimer && !currentTimer.is_break) {
-      const elapsed = Math.floor((Date.now() - new Date(currentTimer.start_time).getTime()) / 1000);
-      return base + elapsed;
-    }
-    return base;
-  };
-
-  // Start timer for a specific goal (stops current timer first if running)
+  // Start timer for a specific goal / subgoal (stops current timer first if running)
   const handleStartForGoal = async (goal) => {
     try {
       if (currentTimer) await handleTimerStop();
@@ -157,11 +154,58 @@ export default function DashboardPage({ user }) {
     }
   };
 
+  const startForSubgoal = async (goal, sub) => {
+    try {
+      if (currentTimer) await handleTimerStop();
+      await handleTimerStart(sub.label, goal.projectId || null);
+      toast.success(`Working on: ${sub.label}`);
+    } catch (err) {
+      toast.error(err.message || "Failed to start");
+    }
+  };
+
   const saveEditGoal = () => {
     if (!editingGoal || !editingGoal.label.trim() || !editingGoal.targetHours) return;
-    saveGoals(goals.map((g) => g.id === editingGoal.id ? { ...editingGoal } : g));
+    saveGoals(goals.map((g) => g.id === editingGoal.id ? { ...g, ...editingGoal } : g));
     setEditingGoal(null);
   };
+
+  // Subgoal + completion + manual-time helpers (goal state lives in localStorage)
+  const mapGoal = (goalId, fn) => saveGoals(goals.map((g) => (g.id === goalId ? fn(g) : g)));
+  const mapSubgoal = (goalId, subId, fn) =>
+    mapGoal(goalId, (g) => ({ ...g, subgoals: g.subgoals.map((s) => (s.id === subId ? fn(s) : s)) }));
+
+  const addSubgoal = (goalId, label, hours) =>
+    mapGoal(goalId, (g) => ({
+      ...g,
+      subgoals: [...g.subgoals, { id: `${Date.now()}_${g.subgoals.length}`, label, targetHours: hours, done: false, doneAt: null, doneSeconds: null, addedSeconds: 0 }],
+    }));
+  const deleteSubgoal = (goalId, subId) =>
+    mapGoal(goalId, (g) => ({ ...g, subgoals: g.subgoals.filter((s) => s.id !== subId) }));
+
+  const markGoalDone = (goalId) =>
+    mapGoal(goalId, (g) => g.done
+      ? { ...g, done: false, doneAt: null, doneSeconds: null }
+      : { ...g, done: true, doneAt: new Date().toISOString(), doneSeconds: Math.round(goalSecondsNow(g)) });
+  const markSubgoalDone = (goalId, subId) =>
+    mapSubgoal(goalId, subId, (s) => s.done
+      ? { ...s, done: false, doneAt: null, doneSeconds: null }
+      : { ...s, done: true, doneAt: new Date().toISOString(), doneSeconds: Math.round(subgoalSecondsNow(goals.find((g) => g.id === goalId), s)) });
+
+  const addTimeToGoal = (goalId, seconds) =>
+    mapGoal(goalId, (g) => ({ ...g, addedSeconds: (g.addedSeconds || 0) + seconds }));
+  const addTimeToSubgoal = (goalId, subId, seconds) =>
+    mapSubgoal(goalId, subId, (s) => ({ ...s, addedSeconds: (s.addedSeconds || 0) + seconds }));
+
+  const toggleCarryOver = (goalId) =>
+    mapGoal(goalId, (g) => ({ ...g, carryOver: !g.carryOver, startDate: g.startDate || todayStr() }));
+
+  const toggleExpand = (goalId) =>
+    setExpandedGoals((prev) => {
+      const next = new Set(prev);
+      next.has(goalId) ? next.delete(goalId) : next.add(goalId);
+      return next;
+    });
 
   // Quick-start by project (stops current timer first if one is running)
   const handleQuickStart = async (project) => {
@@ -177,12 +221,6 @@ export default function DashboardPage({ user }) {
   // Has any finished, non-break work been logged today for this project?
   const projectHasEntriesToday = (projectId) =>
     todayEntries.some((e) => e.project_id === projectId && !e.is_break && !e.is_running);
-
-  // Has any finished, non-break work been logged today matching this goal?
-  const goalHasEntriesToday = (goal) =>
-    goal.projectId
-      ? projectHasEntriesToday(goal.projectId)
-      : todayEntries.some((e) => e.description === goal.label && !e.is_break && !e.is_running);
 
   // Project rename/recolor + delete (reuses the projects API)
   const updateProject = async (projectId, fields) => {
@@ -213,7 +251,6 @@ export default function DashboardPage({ user }) {
   // Reassign a goal's linked project inline
   const setGoalProject = (goalId, projectId) => {
     saveGoals(goals.map((g) => (g.id === goalId ? { ...g, projectId: projectId || null } : g)));
-    setGoalProjectMenuId(null);
   };
 
   // Idle alert
@@ -250,20 +287,16 @@ export default function DashboardPage({ user }) {
     }
   };
 
-  const formatGoalTime = (seconds) => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = seconds % 60;
-    if (h > 0) return `${h}h ${m}m`;
-    if (m > 0) return `${m}m`;
-    return `${s}s`;
-  };
-
   // Which goals is the current timer actively contributing to?
-  const activeGoals = currentTimer
-    ? goals.filter((g) => g.projectId ? g.projectId === currentTimer.project_id : true)
-    : [];
-  const activeGoalIds = new Set(activeGoals.map((g) => g.id));
+  const activeGoals = currentTimer ? goals.filter((g) => isGoalActive(g, currentTimer)) : [];
+
+  // Aggregate pacing across goals + subgoals
+  const pacing = computePacing(goals, goalCtx);
+  const pacingMeta = {
+    ahead: { text: "⚡ Ahead of pace", color: "#00FF41" },
+    over: { text: "⏳ Running over", color: "#FF8C00" },
+    onpace: { text: "On pace", color: "#71717A" },
+  }[pacing.status];
 
   return (
     <AppShell user={user} activePage="dashboard">
@@ -333,11 +366,22 @@ export default function DashboardPage({ user }) {
 
         {/* Daily Goals */}
         <div className="bg-[#0A0A0A] border border-[#333] p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[10px] text-[#71717A] uppercase tracking-widest">Daily Goals</span>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="font-mono text-[10px] text-[#71717A] uppercase tracking-widest">Daily Goals</span>
+              {(pacing.early > 0 || pacing.over > 0) && (
+                <span
+                  data-testid="pacing-badge"
+                  className="font-mono text-[10px] uppercase tracking-wider shrink-0"
+                  style={{ color: pacingMeta.color }}
+                >
+                  {pacingMeta.text}
+                </span>
+              )}
+            </div>
             <button
               onClick={() => setShowGoalForm(!showGoalForm)}
-              className="font-mono text-[10px] text-[#71717A] hover:text-[#00FF41] uppercase tracking-wider transition-colors"
+              className="font-mono text-[10px] text-[#71717A] hover:text-[#00FF41] uppercase tracking-wider transition-colors shrink-0"
             >
               {showGoalForm ? "— Cancel" : "+ Add Goal"}
             </button>
@@ -348,148 +392,80 @@ export default function DashboardPage({ user }) {
           )}
 
           {goals.map((goal) => {
-            const seconds = getGoalSeconds(goal);
-            const progressPct = Math.min((seconds / (goal.targetHours * 3600)) * 100, 100);
-            const done = seconds >= goal.targetHours * 3600;
-            const isActive = activeGoalIds.has(goal.id);
-            const linkedProject = projects.find((p) => p.project_id === goal.projectId);
-            const barColor = done ? "#00FF41" : linkedProject?.color || "#00FF41";
-            const isEditing = editingGoal?.id === goal.id;
-
-            return (
-              <div
-                key={goal.id}
-                className={`space-y-1.5 p-2 -mx-2 transition-colors ${
-                  isActive ? "bg-[#00FF41]/5 ring-1 ring-[#00FF41]/20" : ""
-                }`}
-              >
-                {isEditing ? (
-                  <div className="space-y-2">
+            if (editingGoal?.id === goal.id) {
+              return (
+                <div key={goal.id} className="space-y-2 p-2 -mx-2 border border-[#222]">
+                  <input
+                    type="text"
+                    value={editingGoal.label}
+                    onChange={(e) => setEditingGoal({ ...editingGoal, label: e.target.value })}
+                    autoFocus
+                    className="w-full bg-transparent border-b border-[#333] focus:border-[#00FF41] py-1 font-mono text-xs text-[#EDEDED] outline-none transition-colors"
+                  />
+                  <div className="flex gap-2 flex-wrap items-center">
                     <input
-                      type="text"
-                      value={editingGoal.label}
-                      onChange={(e) => setEditingGoal({ ...editingGoal, label: e.target.value })}
-                      autoFocus
-                      className="w-full bg-transparent border-b border-[#333] focus:border-[#00FF41] py-1 font-mono text-xs text-[#EDEDED] outline-none transition-colors"
+                      type="number"
+                      value={editingGoal.targetHours}
+                      onChange={(e) => setEditingGoal({ ...editingGoal, targetHours: parseFloat(e.target.value) })}
+                      min="0.25" max="24" step="0.25"
+                      className="w-20 bg-transparent border-b border-[#333] focus:border-[#00FF41] py-1 font-mono text-xs text-[#EDEDED] outline-none transition-colors"
                     />
-                    <div className="flex gap-2">
+                    <select
+                      value={editingGoal.projectId || ""}
+                      onChange={(e) => setEditingGoal({ ...editingGoal, projectId: e.target.value || null })}
+                      className="flex-1 min-w-[120px] bg-[#0A0A0A] border border-[#333] font-mono text-xs text-[#A1A1AA] px-2 py-1 outline-none"
+                    >
+                      <option value="">Any productive time</option>
+                      {projects.map((p) => (
+                        <option key={p.project_id} value={p.project_id}>{p.name}</option>
+                      ))}
+                    </select>
+                    <label className="flex items-center gap-1.5 font-mono text-[10px] text-[#A1A1AA] cursor-pointer">
                       <input
-                        type="number"
-                        value={editingGoal.targetHours}
-                        onChange={(e) => setEditingGoal({ ...editingGoal, targetHours: parseFloat(e.target.value) })}
-                        min="0.25" max="24" step="0.25"
-                        className="w-20 bg-transparent border-b border-[#333] focus:border-[#00FF41] py-1 font-mono text-xs text-[#EDEDED] outline-none transition-colors"
+                        type="checkbox"
+                        checked={!!editingGoal.carryOver}
+                        onChange={(e) => setEditingGoal({ ...editingGoal, carryOver: e.target.checked })}
+                        className="accent-[#60A5FA]"
                       />
-                      <select
-                        value={editingGoal.projectId || ""}
-                        onChange={(e) => setEditingGoal({ ...editingGoal, projectId: e.target.value || null })}
-                        className="flex-1 bg-[#0A0A0A] border border-[#333] font-mono text-xs text-[#A1A1AA] px-2 py-1 outline-none"
-                      >
-                        <option value="">Any productive time</option>
-                        {projects.map((p) => (
-                          <option key={p.project_id} value={p.project_id}>{p.name}</option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={saveEditGoal}
-                        className="bg-[#00FF41] text-black font-mono text-[10px] font-bold uppercase tracking-wider px-3 py-1 hover:bg-[#00CC33] transition-colors"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={() => setEditingGoal(null)}
-                        className="font-mono text-[10px] text-[#555] hover:text-[#EDEDED] uppercase tracking-wider px-2 py-1 border border-[#333] transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
+                      carries over
+                    </label>
+                    <button
+                      onClick={saveEditGoal}
+                      className="bg-[#00FF41] text-black font-mono text-[10px] font-bold uppercase tracking-wider px-3 py-1 hover:bg-[#00CC33] transition-colors"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setEditingGoal(null)}
+                      className="font-mono text-[10px] text-[#A1A1AA] hover:text-[#EDEDED] uppercase tracking-wider px-2 py-1 border border-[#333] transition-colors"
+                    >
+                      Cancel
+                    </button>
                   </div>
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        {isActive && (
-                          <span className="font-mono text-[9px] text-[#00FF41] uppercase tracking-widest shrink-0 animate-pulse">
-                            ● live
-                          </span>
-                        )}
-                        {!isActive && done && <span className="text-[#00FF41] text-xs shrink-0">✓</span>}
-                        {linkedProject && (
-                          <div className="w-2 h-2 shrink-0" style={{ backgroundColor: linkedProject.color }} />
-                        )}
-                        <span className={`font-mono text-xs truncate ${done ? "text-[#00FF41]" : isActive ? "text-[#EDEDED]" : "text-[#A1A1AA]"}`}>
-                          {goal.label}
-                        </span>
-                        <div className="relative shrink-0 hidden sm:block">
-                          <button
-                            onClick={() => setGoalProjectMenuId(goalProjectMenuId === goal.id ? null : goal.id)}
-                            title="Change linked project"
-                            className="flex items-center gap-1 font-mono text-[10px] text-[#71717A] hover:text-[#EDEDED] transition-colors"
-                          >
-                            {linkedProject ? `via ${linkedProject.name}` : "any time"}
-                            <ChevronDown className="w-2.5 h-2.5" />
-                          </button>
-                          {goalProjectMenuId === goal.id && (
-                            <div className="absolute left-0 top-full mt-1 w-44 bg-[#0A0A0A] border border-[#333] z-50 shadow-lg max-h-56 overflow-y-auto">
-                              <button
-                                onClick={() => setGoalProject(goal.id, null)}
-                                className="w-full text-left px-3 py-2 font-mono text-[11px] text-[#A1A1AA] hover:bg-[#1A1A1A] transition-colors"
-                              >
-                                Any productive time
-                              </button>
-                              {projects.map((p) => (
-                                <button
-                                  key={p.project_id}
-                                  onClick={() => setGoalProject(goal.id, p.project_id)}
-                                  className="w-full flex items-center gap-2 px-3 py-2 font-mono text-[11px] text-[#EDEDED] hover:bg-[#1A1A1A] transition-colors"
-                                >
-                                  <div className="w-2 h-2 shrink-0" style={{ backgroundColor: p.color }} />
-                                  {p.name}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className={`font-mono text-[10px] tabular-nums ${isActive ? "text-[#00FF41]" : "text-[#71717A]"}`}>
-                          {formatGoalTime(seconds)} / {goal.targetHours}h
-                        </span>
-                        {!isActive && (
-                          <button
-                            onClick={() => handleStartForGoal(goal)}
-                            title={currentTimer ? `Switch to: ${goal.label}` : `${goalHasEntriesToday(goal) ? "Continue" : "Work on"}: ${goal.label}`}
-                            className="flex items-center gap-1 px-2 py-0.5 border border-[#333] font-mono text-[9px] text-[#71717A] hover:border-[#00FF41] hover:text-[#00FF41] transition-colors uppercase tracking-wider"
-                          >
-                            <Play className="w-2.5 h-2.5" />
-                            {currentTimer ? "Switch" : goalHasEntriesToday(goal) ? "Continue" : "Work"}
-                          </button>
-                        )}
-                        <button
-                          onClick={() => setEditingGoal({ ...goal })}
-                          className="text-[#52525B] hover:text-[#A1A1AA] transition-colors"
-                          title="Edit goal"
-                        >
-                          <Pencil className="w-3 h-3" />
-                        </button>
-                        <button
-                          onClick={() => saveGoals(goals.filter((g) => g.id !== goal.id))}
-                          className="text-[#52525B] hover:text-[#FF003C] transition-colors"
-                          title="Delete goal"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="w-full h-1 bg-[#1A1A1A]">
-                      <div
-                        className="h-full transition-all duration-1000"
-                        style={{ width: `${progressPct}%`, backgroundColor: barColor }}
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
+                </div>
+              );
+            }
+            return (
+              <GoalCard
+                key={goal.id}
+                goal={goal}
+                projects={projects}
+                ctx={goalCtx}
+                expanded={expandedGoals.has(goal.id)}
+                onToggleExpand={toggleExpand}
+                onStartGoal={handleStartForGoal}
+                onStartSubgoal={startForSubgoal}
+                onMarkGoalDone={markGoalDone}
+                onMarkSubgoalDone={markSubgoalDone}
+                onAddTimeGoal={addTimeToGoal}
+                onAddTimeSubgoal={addTimeToSubgoal}
+                onAddSubgoal={addSubgoal}
+                onDeleteSubgoal={deleteSubgoal}
+                onEditGoal={(g) => setEditingGoal({ ...g })}
+                onDeleteGoal={(id) => saveGoals(goals.filter((g) => g.id !== id))}
+                onSetGoalProject={setGoalProject}
+                onToggleCarryOver={toggleCarryOver}
+              />
             );
           })}
 
@@ -533,6 +509,16 @@ export default function DashboardPage({ user }) {
                   Add
                 </button>
               </div>
+              <label className="flex items-center gap-2 font-mono text-[10px] text-[#A1A1AA] cursor-pointer w-fit">
+                <input
+                  type="checkbox"
+                  checked={newGoalCarryOver}
+                  onChange={(e) => setNewGoalCarryOver(e.target.checked)}
+                  data-testid="new-goal-carryover"
+                  className="accent-[#60A5FA]"
+                />
+                Carries over across days (multi-day goal — keeps prior time)
+              </label>
             </div>
           )}
         </div>
