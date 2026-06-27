@@ -3,6 +3,7 @@ import { API } from "@/App";
 import AppShell from "@/components/AppShell";
 import { Plus, Trash2, Edit2, Check, X } from "lucide-react";
 import { toast } from "sonner";
+import { CATEGORIES, categoryMeta, projectCategory } from "@/lib/categories";
 
 const PRESET_COLORS = [
   "#00FF41", "#00CC33", "#33FF66", "#FFD600", "#00BFFF",
@@ -13,9 +14,11 @@ export default function ProjectsPage({ user }) {
   const [projects, setProjects] = useState([]);
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState("#00FF41");
+  const [newCategory, setNewCategory] = useState("focus");
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
   const [editColor, setEditColor] = useState("");
+  const [editCategory, setEditCategory] = useState("focus");
 
   const fetchProjects = async () => {
     try {
@@ -36,10 +39,10 @@ export default function ProjectsPage({ user }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ name: newName.trim(), color: newColor }),
+        body: JSON.stringify({ name: newName.trim(), color: newColor, category: newCategory }),
       });
       if (!res.ok) throw new Error("Failed to create");
-      setNewName("");
+      setNewName(""); setNewCategory("focus");
       toast.success("Project created");
       fetchProjects();
     } catch (err) {
@@ -53,7 +56,7 @@ export default function ProjectsPage({ user }) {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ name: editName, color: editColor }),
+        body: JSON.stringify({ name: editName, color: editColor, category: editCategory }),
       });
       setEditingId(null);
       toast.success("Project updated");
@@ -80,6 +83,7 @@ export default function ProjectsPage({ user }) {
     setEditingId(project.project_id);
     setEditName(project.name);
     setEditColor(project.color);
+    setEditCategory(projectCategory(project));
   };
 
   return (
@@ -110,6 +114,22 @@ export default function ProjectsPage({ user }) {
               className="w-full bg-transparent border-b border-[#333] focus:border-[#00FF41] px-0 py-3 font-mono text-sm text-[#EDEDED] placeholder:text-[#333] outline-none transition-colors"
               onKeyDown={(e) => e.key === "Enter" && createProject()}
             />
+            <div className="flex flex-wrap gap-1.5" data-testid="new-project-category">
+              {CATEGORIES.map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setNewCategory(cat.id)}
+                  title={cat.hint}
+                  className={`flex items-center gap-1.5 border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors ${
+                    newCategory === cat.id ? "text-[#EDEDED]" : "border-[#222] text-[#52525B] hover:text-[#A1A1AA]"
+                  }`}
+                  style={newCategory === cat.id ? { borderColor: cat.color, color: cat.color } : undefined}
+                >
+                  <span className="w-2 h-2" style={{ backgroundColor: cat.color }} />
+                  {cat.label}
+                </button>
+              ))}
+            </div>
             <div className="flex items-center justify-between gap-3">
               <div className="flex gap-1 flex-wrap">
                 {PRESET_COLORS.map((c) => (
@@ -167,6 +187,16 @@ export default function ProjectsPage({ user }) {
                       />
                     ))}
                   </div>
+                  <select
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value)}
+                    data-testid="edit-project-category"
+                    className="bg-[#0A0A0A] border border-[#333] font-mono text-[11px] text-[#A1A1AA] px-2 py-1 outline-none"
+                  >
+                    {CATEGORIES.map((cat) => (
+                      <option key={cat.id} value={cat.id}>{cat.label}</option>
+                    ))}
+                  </select>
                   <button
                     onClick={() => updateProject(project.project_id)}
                     data-testid="save-project-btn"
@@ -188,9 +218,16 @@ export default function ProjectsPage({ user }) {
                     className="w-4 h-4 shrink-0"
                     style={{ backgroundColor: project.color }}
                   />
-                  <span className="flex-1 font-mono text-sm text-[#EDEDED]">
+                  <span className="font-mono text-sm text-[#EDEDED]">
                     {project.name}
                   </span>
+                  <span
+                    className="font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 border"
+                    style={{ color: categoryMeta(projectCategory(project)).color, borderColor: `${categoryMeta(projectCategory(project)).color}40` }}
+                  >
+                    {categoryMeta(projectCategory(project)).label}
+                  </span>
+                  <span className="flex-1" />
                   {project.is_default && (
                     <span className="font-mono text-[10px] text-[#00FF41] uppercase tracking-wider border border-[#00FF41]/30 px-2 py-0.5">
                       Default

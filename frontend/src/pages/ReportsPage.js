@@ -77,7 +77,7 @@ export default function ReportsPage({ user }) {
             <p className="font-heading text-2xl md:text-3xl font-bold text-[#00FF41]">
               {productiveHours}h
             </p>
-            <p className="font-mono text-xs text-[#52525B] mt-1">productive</p>
+            <p className="font-mono text-xs text-[#52525B] mt-1">on purpose</p>
           </div>
           <div className="bg-[#0A0A0A] border border-[#333] p-4 md:p-6" data-testid="metric-today-productive">
             <p className="font-mono text-[9px] md:text-[10px] text-[#52525B] uppercase tracking-widest mb-2">
@@ -106,7 +106,7 @@ export default function ReportsPage({ user }) {
               {realityScore}%
             </p>
             <p className="font-mono text-xs text-[#52525B] mt-1">
-              productive / awake
+              lived on purpose / awake
             </p>
           </div>
         </div>

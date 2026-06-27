@@ -20,8 +20,8 @@ export function getEntryColor(entry) {
 export function getEntryLabel(entry) {
   const entryType = entry.entry_type || (entry.is_break ? "break" : "task");
   if (entryType === "scheduled") return "Committed";
-  if (entryType === "break") return "Unaccounted";
-  return "Productive";
+  if (entryType === "break") return "Drifted";
+  return "On purpose";
 }
 
 export function isProductiveEntry(entry) {

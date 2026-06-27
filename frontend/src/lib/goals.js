@@ -25,7 +25,7 @@ export function formatGoalTime(seconds) {
 export function normalizeGoal(goal) {
   return {
     subgoals: [],
-    carryOver: false,
+    carryOver: true,
     done: false,
     doneAt: null,
     doneSeconds: null,

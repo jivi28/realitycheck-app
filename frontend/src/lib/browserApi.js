@@ -6,11 +6,11 @@ const CLOUD_STATE_URL = `${SUPABASE_URL}/rest/v1/realitycheck_shared_state`;
 const USE_CLOUD_STORAGE = Boolean(SUPABASE_URL && SUPABASE_KEY);
 
 const DEFAULT_PROJECTS = [
-  { project_id: "proj_deep_work", name: "Deep Work", color: "#00FF41", is_default: true },
-  { project_id: "proj_study", name: "Study", color: "#00CC33", is_default: false },
-  { project_id: "proj_coding", name: "Coding", color: "#33FF66", is_default: false },
-  { project_id: "proj_exercise", name: "Exercise", color: "#FFD600", is_default: false },
-  { project_id: "proj_reading", name: "Reading", color: "#00BFFF", is_default: false },
+  { project_id: "proj_deep_work", name: "Deep Work", color: "#00FF41", is_default: true, category: "focus" },
+  { project_id: "proj_study", name: "Study", color: "#00CC33", is_default: false, category: "focus" },
+  { project_id: "proj_coding", name: "Coding", color: "#33FF66", is_default: false, category: "focus" },
+  { project_id: "proj_exercise", name: "Exercise", color: "#FFD600", is_default: false, category: "health" },
+  { project_id: "proj_reading", name: "Reading", color: "#00BFFF", is_default: false, category: "rest" },
 ].map((project) => ({
   ...project,
   user_id: USER_ID,
@@ -221,7 +221,7 @@ function addGapEntry(state, endTime) {
     entry_id: id("entry"),
     user_id: USER_ID,
     project_id: null,
-    description: "Unaccounted Time",
+    description: "Untracked time",
     start_time: last.end_time,
     end_time: endTime,
     duration,
@@ -244,26 +244,26 @@ function buildReport(state) {
   const content = [
     "## Reality Check",
     "",
-    `You logged **${productive.toFixed(1)}h** of productive work this week. Scheduled time was **${scheduled.toFixed(1)}h**. Unaccounted time was **${unaccounted.toFixed(1)}h**.`,
+    `You lived **${productive.toFixed(1)}h** on purpose this week — work and intentional life time. Committed time was **${scheduled.toFixed(1)}h**. Drifted (untracked) time was **${unaccounted.toFixed(1)}h**.`,
     "",
     "## The Numbers",
     "",
-    `- Productive work: ${productive.toFixed(1)}h`,
-    `- Scheduled/committed time: ${scheduled.toFixed(1)}h`,
-    `- Unaccounted time: ${unaccounted.toFixed(1)}h`,
-    `- Unaccounted/productive ratio: ${ratio}`,
+    `- On purpose: ${productive.toFixed(1)}h`,
+    `- Committed time: ${scheduled.toFixed(1)}h`,
+    `- Drifted time: ${unaccounted.toFixed(1)}h`,
+    `- Drifted/on-purpose ratio: ${ratio}`,
     "",
     "## Pattern",
     "",
     zeroDays.length
-      ? `Zero productive hours on: ${zeroDays.join(", ")}. A planned day only counts once you start tracking real work.`
-      : "You logged work each tracked day. The useful question is whether the hours match the story you told yourself.",
+      ? `No tracked time on: ${zeroDays.join(", ")}. A day only counts once you start tracking what you actually do.`
+      : "You lived on purpose each tracked day. The useful question is whether the hours match the story you told yourself.",
     "",
     "## Next Moves",
     "",
-    "- Start the timer before the task begins.",
-    "- Create schedules for fixed commitments so gaps are easier to judge.",
-    "- Review unaccounted time daily, while it is still actionable.",
+    "- Start the timer before the activity begins — work or life.",
+    "- Categorize projects so your day shows the real mix (focus, health, social, care).",
+    "- Review drifted time daily, while it is still actionable.",
   ].join("\n");
   return {
     report_id: id("report"),
@@ -300,6 +300,7 @@ async function handleApiRequest(path, method, request) {
       user_id: USER_ID,
       name: body.name,
       color: body.color || "#00FF41",
+      category: body.category || "focus",
       is_default: false,
       created_at: new Date().toISOString(),
     };

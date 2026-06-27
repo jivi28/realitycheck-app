@@ -1,23 +1,38 @@
-import { Clock, Zap, MinusCircle, Moon, MoonStar } from "lucide-react";
+import { Clock, Heart, MinusCircle, Moon, MoonStar } from "lucide-react";
+import { CATEGORIES, projectCategory } from "@/lib/categories";
 
 const AWAKE_HOURS = 16;
 
-export default function StatsBar({ dailyData, currentTimer }) {
+export default function StatsBar({ dailyData, currentTimer, projects = [] }) {
   const baseProductive = dailyData?.productive_seconds || 0;
   const breakTime = dailyData?.break_seconds || 0;
   const scheduled = dailyData?.scheduled_seconds || 0;
 
-  // Live elapsed: while a real (non-break) timer runs, count it toward productive
-  // in real time. StatsBar re-renders every second because its parent ticks.
+  // Live elapsed: while a real (non-break) timer runs, count it toward
+  // "on purpose" in real time. StatsBar re-renders each second via its parent.
   const liveElapsed =
     currentTimer && !currentTimer.is_break
       ? Math.max(0, Math.floor((Date.now() - new Date(currentTimer.start_time).getTime()) / 1000))
       : 0;
-  const productive = baseProductive + liveElapsed;
+  const onPurpose = baseProductive + liveElapsed;
 
-  const tracked = productive + breakTime + scheduled;
+  const tracked = onPurpose + breakTime + scheduled;
   const awakeSeconds = AWAKE_HOURS * 3600;
   const untracked = Math.max(0, awakeSeconds - tracked);
+
+  // Per-category breakdown of "on purpose" time (today's task entries + live timer)
+  const projectsById = Object.fromEntries(projects.map((p) => [p.project_id, p]));
+  const catSeconds = {};
+  for (const e of dailyData?.entries || []) {
+    if (e.is_break || e.entry_type === "break" || e.entry_type === "scheduled") continue;
+    const cat = projectCategory(projectsById[e.project_id]);
+    catSeconds[cat] = (catSeconds[cat] || 0) + (e.duration || 0);
+  }
+  if (liveElapsed > 0) {
+    const cat = projectCategory(projectsById[currentTimer.project_id]);
+    catSeconds[cat] = (catSeconds[cat] || 0) + liveElapsed;
+  }
+  const breakdown = CATEGORIES.filter((c) => catSeconds[c.id] > 0);
 
   const formatHours = (seconds) => {
     const h = Math.floor(seconds / 3600);
@@ -29,7 +44,7 @@ export default function StatsBar({ dailyData, currentTimer }) {
     return "0m";
   };
 
-  const realityScore = AWAKE_HOURS > 0 ? Math.round((productive / 3600 / AWAKE_HOURS) * 100) : 0;
+  const realityScore = AWAKE_HOURS > 0 ? Math.round((onPurpose / 3600 / AWAKE_HOURS) * 100) : 0;
   const scoreColor = realityScore >= 50 ? "#00FF41" : realityScore >= 25 ? "#FFD600" : "#FF003C";
   const isLive = liveElapsed > 0;
 
@@ -47,7 +62,7 @@ export default function StatsBar({ dailyData, currentTimer }) {
           {realityScore}%
         </p>
         <p className="font-mono text-[10px] text-[#71717A] mt-1.5">
-          {formatHours(productive)} productive of {AWAKE_HOURS}h awake
+          {formatHours(onPurpose)} lived on purpose of {AWAKE_HOURS}h awake
         </p>
         <div className="w-full h-1.5 bg-[#1A1A1A] mt-3 max-w-xs mx-auto">
           <div
@@ -61,20 +76,20 @@ export default function StatsBar({ dailyData, currentTimer }) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <div className="bg-[#0A0A0A] border border-[#333] p-3 md:p-4" data-testid="stat-productive">
           <div className="flex items-center gap-2 mb-1.5 md:mb-2">
-            <Zap className="w-3 h-3 md:w-3.5 md:h-3.5 text-[#00FF41]" />
-            <span className="font-mono text-[9px] md:text-[10px] text-[#71717A] uppercase tracking-widest">Productive</span>
+            <Heart className="w-3 h-3 md:w-3.5 md:h-3.5 text-[#00FF41]" />
+            <span className="font-mono text-[9px] md:text-[10px] text-[#71717A] uppercase tracking-widest">On purpose</span>
           </div>
-          <p className="font-heading text-xl md:text-2xl font-bold text-[#00FF41]">{formatHours(productive)}</p>
-          <p className="font-mono text-[9px] text-[#52525B] mt-1">tracked focus work</p>
+          <p className="font-heading text-xl md:text-2xl font-bold text-[#00FF41]">{formatHours(onPurpose)}</p>
+          <p className="font-mono text-[9px] text-[#52525B] mt-1">tracked, on purpose</p>
         </div>
 
         <div className="bg-[#0A0A0A] border border-[#333] p-3 md:p-4" data-testid="stat-break">
           <div className="flex items-center gap-2 mb-1.5 md:mb-2">
             <MinusCircle className="w-3 h-3 md:w-3.5 md:h-3.5 text-[#71717A]" />
-            <span className="font-mono text-[9px] md:text-[10px] text-[#71717A] uppercase tracking-widest">Unaccounted</span>
+            <span className="font-mono text-[9px] md:text-[10px] text-[#71717A] uppercase tracking-widest">Drifted</span>
           </div>
           <p className="font-heading text-xl md:text-2xl font-bold text-[#A1A1AA]">{formatHours(breakTime)}</p>
-          <p className="font-mono text-[9px] text-[#52525B] mt-1">gaps between sessions</p>
+          <p className="font-mono text-[9px] text-[#52525B] mt-1">untracked gaps</p>
         </div>
 
         <div className="bg-[#0A0A0A] border border-[#333] p-3 md:p-4" data-testid="stat-scheduled">
@@ -92,9 +107,22 @@ export default function StatsBar({ dailyData, currentTimer }) {
             <span className="font-mono text-[9px] md:text-[10px] text-[#71717A] uppercase tracking-widest">Tracked</span>
           </div>
           <p className="font-heading text-xl md:text-2xl font-bold text-[#EDEDED]">{formatHours(tracked)}</p>
-          <p className="font-mono text-[9px] text-[#52525B] mt-1">productive + gaps + committed</p>
+          <p className="font-mono text-[9px] text-[#52525B] mt-1">on purpose + gaps + committed</p>
         </div>
       </div>
+
+      {/* Category breakdown of on-purpose time */}
+      {breakdown.length > 0 && (
+        <div className="bg-[#0A0A0A] border border-[#333] px-4 py-2.5 flex items-center gap-x-4 gap-y-1.5 flex-wrap" data-testid="category-breakdown">
+          <span className="font-mono text-[10px] text-[#71717A] uppercase tracking-widest">On purpose</span>
+          {breakdown.map((c) => (
+            <span key={c.id} className="flex items-center gap-1.5 font-mono text-[11px] tabular-nums" style={{ color: c.color }}>
+              <span className="w-2 h-2" style={{ backgroundColor: c.color }} />
+              {c.label} {formatHours(catSeconds[c.id])}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Untracked remainder of the awake day */}
       <div className="bg-[#0A0A0A] border border-[#333] px-4 py-2.5 flex items-center justify-between" data-testid="stat-untracked">

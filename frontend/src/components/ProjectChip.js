@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Play, Pencil, Trash2, Check, X, ChevronDown } from "lucide-react";
+import { CATEGORIES, projectCategory } from "@/lib/categories";
 
 const PRESET_COLORS = [
   "#00FF41", "#00CC33", "#33FF66", "#FFD600", "#00BFFF",
@@ -17,6 +18,7 @@ export default function ProjectChip({ project, startLabel, onStart, onUpdate, on
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [name, setName] = useState(project.name);
   const [color, setColor] = useState(project.color);
+  const [category, setCategory] = useState(projectCategory(project));
   const ref = useRef(null);
 
   useEffect(() => {
@@ -36,13 +38,14 @@ export default function ProjectChip({ project, startLabel, onStart, onUpdate, on
   const beginEdit = () => {
     setName(project.name);
     setColor(project.color);
+    setCategory(projectCategory(project));
     setEditing(true);
     setConfirmDelete(false);
   };
 
   const saveEdit = () => {
     if (!name.trim()) return;
-    onUpdate(project.project_id, { name: name.trim(), color });
+    onUpdate(project.project_id, { name: name.trim(), color, category });
     closeAll();
   };
 
@@ -80,6 +83,22 @@ export default function ProjectChip({ project, startLabel, onStart, onUpdate, on
                     className={`w-5 h-5 transition-transform ${color === c ? "scale-110 ring-1 ring-white" : "hover:scale-105"}`}
                     style={{ backgroundColor: c }}
                   />
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {CATEGORIES.map((cat) => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setCategory(cat.id)}
+                    title={cat.hint}
+                    className={`flex items-center gap-1 border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider transition-colors ${
+                      category === cat.id ? "" : "border-[#222] text-[#52525B] hover:text-[#A1A1AA]"
+                    }`}
+                    style={category === cat.id ? { borderColor: cat.color, color: cat.color } : undefined}
+                  >
+                    <span className="w-1.5 h-1.5" style={{ backgroundColor: cat.color }} />
+                    {cat.label}
+                  </button>
                 ))}
               </div>
               <div className="flex gap-2 pt-1">

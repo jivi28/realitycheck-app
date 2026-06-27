@@ -46,8 +46,8 @@ export default function WeeklyBarChart({ data }) {
         <Legend
           wrapperStyle={{ fontFamily: "JetBrains Mono", fontSize: "10px", letterSpacing: "0.05em" }}
         />
-        <Bar dataKey="productive_hours" name="Productive" fill="#00FF41" radius={[0, 0, 0, 0]} />
-        <Bar dataKey="break_hours" name="Unaccounted" fill="#262626" radius={[0, 0, 0, 0]} />
+        <Bar dataKey="productive_hours" name="On purpose" fill="#00FF41" radius={[0, 0, 0, 0]} />
+        <Bar dataKey="break_hours" name="Drifted" fill="#262626" radius={[0, 0, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );

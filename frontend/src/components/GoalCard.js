@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Play, Pencil, X, Plus, Check, ChevronDown, ChevronRight, Clock, RefreshCw } from "lucide-react";
+import { Play, Pencil, X, Plus, Check, ChevronDown, ChevronRight, Clock, RefreshCw, ArrowRight } from "lucide-react";
 import {
   computeGoalProgress,
   computeSubgoalProgress,
@@ -138,7 +138,7 @@ export default function GoalCard({
                   onClick={() => { onSetGoalProject(goal.id, null); setProjMenu(false); }}
                   className="w-full text-left px-3 py-2 font-mono text-[11px] text-[#A1A1AA] hover:bg-[#1A1A1A] transition-colors"
                 >
-                  Any productive time
+                  Any tracked time
                 </button>
                 {projects.map((p) => (
                   <button
@@ -154,17 +154,17 @@ export default function GoalCard({
             )}
           </div>
 
-          {/* carry-over chip */}
+          {/* cadence chip */}
           <button
             onClick={() => onToggleCarryOver(goal.id)}
             data-testid={`carryover-toggle-${goal.id}`}
-            title={goal.carryOver ? "Carries over across days — click to make daily" : "Resets daily — click to carry over"}
+            title={goal.carryOver ? "Runs until done — keeps your time across days. Click to make it a daily habit." : "Resets each midnight. Click to make it run until done."}
             className={`hidden md:flex items-center gap-1 font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 border shrink-0 transition-colors ${
               goal.carryOver ? "border-[#60A5FA]/40 text-[#60A5FA]" : "border-[#222] text-[#52525B] hover:text-[#71717A]"
             }`}
           >
-            <RefreshCw className="w-2.5 h-2.5" />
-            {goal.carryOver ? "carries over" : "daily"}
+            {goal.carryOver ? <ArrowRight className="w-2.5 h-2.5" /> : <RefreshCw className="w-2.5 h-2.5" />}
+            {goal.carryOver ? "Until done" : "Daily"}
           </button>
         </div>
 

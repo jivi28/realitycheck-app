@@ -27,7 +27,7 @@ export default function DashboardPage({ user }) {
   const [newGoalLabel, setNewGoalLabel] = useState("");
   const [newGoalHours, setNewGoalHours] = useState("");
   const [newGoalProjectId, setNewGoalProjectId] = useState("");
-  const [newGoalCarryOver, setNewGoalCarryOver] = useState(false);
+  const [newGoalCarryOver, setNewGoalCarryOver] = useState(true);
   const [editingGoal, setEditingGoal] = useState(null);
   const [expandedGoals, setExpandedGoals] = useState(() => new Set());
 
@@ -140,7 +140,7 @@ export default function DashboardPage({ user }) {
         startDate: todayStr(),
       }),
     ]);
-    setNewGoalLabel(""); setNewGoalHours(""); setNewGoalProjectId(""); setNewGoalCarryOver(false); setShowGoalForm(false);
+    setNewGoalLabel(""); setNewGoalHours(""); setNewGoalProjectId(""); setNewGoalCarryOver(true); setShowGoalForm(false);
   };
 
   // Start timer for a specific goal / subgoal (stops current timer first if running)
@@ -273,7 +273,7 @@ export default function DashboardPage({ user }) {
   // Continue last task
   const lastProductiveEntry = !currentTimer
     ? todayEntries
-        .filter((e) => e.description !== "Unaccounted Time" && e.end_time)
+        .filter((e) => !e.is_break && e.entry_type !== "break" && e.end_time)
         .sort((a, b) => new Date(b.end_time) - new Date(a.end_time))[0]
     : null;
 
@@ -362,7 +362,7 @@ export default function DashboardPage({ user }) {
         )}
 
         {/* Stats */}
-        <StatsBar dailyData={dailyData} currentTimer={currentTimer} />
+        <StatsBar dailyData={dailyData} currentTimer={currentTimer} projects={projects} />
 
         {/* Daily Goals */}
         <div className="bg-[#0A0A0A] border border-[#333] p-4 space-y-3">
@@ -415,20 +415,29 @@ export default function DashboardPage({ user }) {
                       onChange={(e) => setEditingGoal({ ...editingGoal, projectId: e.target.value || null })}
                       className="flex-1 min-w-[120px] bg-[#0A0A0A] border border-[#333] font-mono text-xs text-[#A1A1AA] px-2 py-1 outline-none"
                     >
-                      <option value="">Any productive time</option>
+                      <option value="">Any tracked time</option>
                       {projects.map((p) => (
                         <option key={p.project_id} value={p.project_id}>{p.name}</option>
                       ))}
                     </select>
-                    <label className="flex items-center gap-1.5 font-mono text-[10px] text-[#A1A1AA] cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={!!editingGoal.carryOver}
-                        onChange={(e) => setEditingGoal({ ...editingGoal, carryOver: e.target.checked })}
-                        className="accent-[#60A5FA]"
-                      />
-                      carries over
-                    </label>
+                    <div className="flex border border-[#222]" title="Until done keeps your time across days; Daily resets each midnight">
+                      <button
+                        onClick={() => setEditingGoal({ ...editingGoal, carryOver: true })}
+                        className={`font-mono text-[10px] uppercase tracking-wider px-2.5 py-1 transition-colors ${
+                          editingGoal.carryOver ? "bg-[#60A5FA]/15 text-[#60A5FA]" : "text-[#52525B] hover:text-[#A1A1AA]"
+                        }`}
+                      >
+                        → Until done
+                      </button>
+                      <button
+                        onClick={() => setEditingGoal({ ...editingGoal, carryOver: false })}
+                        className={`font-mono text-[10px] uppercase tracking-wider px-2.5 py-1 border-l border-[#222] transition-colors ${
+                          !editingGoal.carryOver ? "bg-[#00FF41]/15 text-[#00FF41]" : "text-[#52525B] hover:text-[#A1A1AA]"
+                        }`}
+                      >
+                        ↻ Daily
+                      </button>
+                    </div>
                     <button
                       onClick={saveEditGoal}
                       className="bg-[#00FF41] text-black font-mono text-[10px] font-bold uppercase tracking-wider px-3 py-1 hover:bg-[#00CC33] transition-colors"
@@ -496,7 +505,7 @@ export default function DashboardPage({ user }) {
                   onChange={(e) => setNewGoalProjectId(e.target.value)}
                   className="flex-1 bg-[#0A0A0A] border border-[#333] font-mono text-xs text-[#A1A1AA] px-2 py-1.5 outline-none"
                 >
-                  <option value="">Any productive time</option>
+                  <option value="">Any tracked time</option>
                   {projects.map((p) => (
                     <option key={p.project_id} value={p.project_id}>{p.name}</option>
                   ))}
@@ -509,16 +518,29 @@ export default function DashboardPage({ user }) {
                   Add
                 </button>
               </div>
-              <label className="flex items-center gap-2 font-mono text-[10px] text-[#A1A1AA] cursor-pointer w-fit">
-                <input
-                  type="checkbox"
-                  checked={newGoalCarryOver}
-                  onChange={(e) => setNewGoalCarryOver(e.target.checked)}
-                  data-testid="new-goal-carryover"
-                  className="accent-[#60A5FA]"
-                />
-                Carries over across days (multi-day goal — keeps prior time)
-              </label>
+              <div className="flex items-center gap-2 flex-wrap" data-testid="new-goal-cadence">
+                <div className="flex border border-[#222]">
+                  <button
+                    onClick={() => setNewGoalCarryOver(true)}
+                    className={`font-mono text-[10px] uppercase tracking-wider px-2.5 py-1 transition-colors ${
+                      newGoalCarryOver ? "bg-[#60A5FA]/15 text-[#60A5FA]" : "text-[#52525B] hover:text-[#A1A1AA]"
+                    }`}
+                  >
+                    → Until done
+                  </button>
+                  <button
+                    onClick={() => setNewGoalCarryOver(false)}
+                    className={`font-mono text-[10px] uppercase tracking-wider px-2.5 py-1 border-l border-[#222] transition-colors ${
+                      !newGoalCarryOver ? "bg-[#00FF41]/15 text-[#00FF41]" : "text-[#52525B] hover:text-[#A1A1AA]"
+                    }`}
+                  >
+                    ↻ Daily
+                  </button>
+                </div>
+                <span className="font-mono text-[9px] text-[#52525B]">
+                  {newGoalCarryOver ? "keeps your time across days until you finish" : "resets each midnight (a daily habit)"}
+                </span>
+              </div>
             </div>
           )}
         </div>
