@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Play, Pencil, X, Plus, Check, ChevronDown, ChevronRight, Clock, RefreshCw, ArrowRight } from "lucide-react";
+import { Play, Pencil, X, Plus, Check, ChevronDown, ChevronRight, Target, RefreshCw, ArrowRight } from "lucide-react";
 import {
   computeGoalProgress,
   computeSubgoalProgress,
@@ -8,28 +8,31 @@ import {
   formatGoalTime,
 } from "@/lib/goals";
 
-// Small inline "+ add time" control (minutes) — used for goals and subgoals.
-function AddTimeInline({ testid, onAdd, onClose }) {
-  const [mins, setMins] = useState("");
+// Inline editor for the TARGET (time needed), in hours. Prefilled with the
+// current target so you can extend or shrink it. (Worked time is logged via
+// "Log past time", not here.)
+function TargetInline({ current, testid, onSave, onClose }) {
+  const [val, setVal] = useState(String(current ?? ""));
   const commit = () => {
-    const v = parseFloat(mins);
-    if (v > 0) onAdd(Math.round(v * 60));
+    const v = parseFloat(val);
+    if (v > 0) onSave(v);
     onClose();
   };
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1">
+      <span className="font-mono text-[9px] text-[#71717A] uppercase tracking-wider">target</span>
       <input
         type="number"
-        value={mins}
-        onChange={(e) => setMins(e.target.value)}
-        placeholder="min"
-        min="1"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        min="0.25" max="100" step="0.25"
         autoFocus
         onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") onClose(); }}
         data-testid={testid}
-        className="w-14 bg-transparent border-b border-[#333] focus:border-[#00FF41] py-0.5 font-mono text-[11px] text-[#EDEDED] outline-none"
+        className="w-12 bg-transparent border-b border-[#333] focus:border-[#00FF41] py-0.5 font-mono text-[11px] text-[#EDEDED] outline-none"
       />
-      <button onClick={commit} className="text-[#00FF41] hover:text-[#00CC33]" title="Add time">
+      <span className="font-mono text-[9px] text-[#71717A]">h</span>
+      <button onClick={commit} className="text-[#00FF41] hover:text-[#00CC33]" title="Save target">
         <Check className="w-3.5 h-3.5" />
       </button>
       <button onClick={onClose} className="text-[#52525B] hover:text-[#EDEDED]" title="Cancel">
@@ -49,6 +52,28 @@ function statusTag(prog, done) {
   return null;
 }
 
+// A clear, labeled done/not-done button (replaces the bare tick).
+function DoneButton({ done, reached, onClick, size = "sm", testid }) {
+  const pad = size === "xs" ? "px-1.5 py-0.5 text-[8px]" : "px-2 py-0.5 text-[9px]";
+  return (
+    <button
+      onClick={onClick}
+      data-testid={testid}
+      title={done ? "Mark not done" : "Mark done"}
+      className={`flex items-center gap-1 font-mono uppercase tracking-wider border transition-colors ${pad} ${
+        done
+          ? "bg-[#00FF41] text-black border-[#00FF41] font-bold"
+          : reached
+          ? "border-[#00FF41] text-[#00FF41] animate-pulse"
+          : "border-[#333] text-[#71717A] hover:border-[#00FF41] hover:text-[#00FF41]"
+      }`}
+    >
+      <Check className={size === "xs" ? "w-2.5 h-2.5" : "w-3 h-3"} />
+      {done ? "Done" : "Finish"}
+    </button>
+  );
+}
+
 export default function GoalCard({
   goal,
   projects,
@@ -59,8 +84,8 @@ export default function GoalCard({
   onStartSubgoal,
   onMarkGoalDone,
   onMarkSubgoalDone,
-  onAddTimeGoal,
-  onAddTimeSubgoal,
+  onSetGoalTarget,
+  onSetSubgoalTarget,
   onAddSubgoal,
   onDeleteSubgoal,
   onEditGoal,
@@ -69,8 +94,8 @@ export default function GoalCard({
   onToggleCarryOver,
 }) {
   const [projMenu, setProjMenu] = useState(false);
-  const [addTimeOpen, setAddTimeOpen] = useState(false);
-  const [addTimeSub, setAddTimeSub] = useState(null); // subgoal id
+  const [targetOpen, setTargetOpen] = useState(false);
+  const [targetSub, setTargetSub] = useState(null); // subgoal id being retargeted
   const [subLabel, setSubLabel] = useState("");
   const [subHours, setSubHours] = useState("");
   const [confirmDel, setConfirmDel] = useState(false);
@@ -81,7 +106,13 @@ export default function GoalCard({
   const barColor = goal.done ? "#00FF41" : prog.over > 0 ? "#FF8C00" : linkedProject?.color || "#00FF41";
   const tag = statusTag(prog, goal.done);
   const hasEntries = prog.seconds > 0;
-  const workLabel = active ? null : ctx.currentTimer ? "Switch" : hasEntries ? "Continue" : "Work";
+  const workLabel = hasEntries ? "Continue" : "Work";
+
+  // Keep the secondary cluster visible while one of its controls is in use.
+  const forceShow = projMenu || targetOpen || confirmDel;
+  const secondaryCls = `flex items-center gap-2 transition-opacity ${
+    forceShow ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
+  }`;
 
   const addSubgoal = () => {
     const hrs = parseFloat(subHours);
@@ -92,8 +123,8 @@ export default function GoalCard({
 
   return (
     <div
-      className={`border p-2.5 -mx-2 transition-colors ${
-        active ? "bg-[#00FF41]/5 border-[#00FF41]/20" : goal.done ? "border-[#1A1A1A] opacity-90" : "border-transparent"
+      className={`group border p-2.5 -mx-2 transition-colors ${
+        active ? "bg-[#00FF41]/5 border-[#00FF41]/20" : goal.done ? "border-[#1A1A1A] opacity-90" : "border-transparent hover:border-[#1A1A1A]"
       }`}
       data-testid={`goal-card-${goal.id}`}
     >
@@ -104,7 +135,7 @@ export default function GoalCard({
             onClick={() => onToggleExpand(goal.id)}
             data-testid={`goal-expand-${goal.id}`}
             className="text-[#52525B] hover:text-[#EDEDED] transition-colors shrink-0"
-            title={expanded ? "Collapse" : "Expand subgoals"}
+            title={expanded ? "Collapse" : "Expand subtasks"}
           >
             {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
           </button>
@@ -121,51 +152,6 @@ export default function GoalCard({
               {goal.subgoals.filter((s) => s.done).length}/{goal.subgoals.length}
             </span>
           )}
-
-          {/* project dropdown */}
-          <div className="relative shrink-0 hidden sm:block">
-            <button
-              onClick={() => setProjMenu((o) => !o)}
-              title="Change linked project"
-              className="flex items-center gap-1 font-mono text-[10px] text-[#71717A] hover:text-[#EDEDED] transition-colors"
-            >
-              {linkedProject ? `via ${linkedProject.name}` : "any time"}
-              <ChevronDown className="w-2.5 h-2.5" />
-            </button>
-            {projMenu && (
-              <div className="absolute left-0 top-full mt-1 w-44 bg-[#0A0A0A] border border-[#333] z-50 shadow-lg max-h-56 overflow-y-auto">
-                <button
-                  onClick={() => { onSetGoalProject(goal.id, null); setProjMenu(false); }}
-                  className="w-full text-left px-3 py-2 font-mono text-[11px] text-[#A1A1AA] hover:bg-[#1A1A1A] transition-colors"
-                >
-                  Any tracked time
-                </button>
-                {projects.map((p) => (
-                  <button
-                    key={p.project_id}
-                    onClick={() => { onSetGoalProject(goal.id, p.project_id); setProjMenu(false); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 font-mono text-[11px] text-[#EDEDED] hover:bg-[#1A1A1A] transition-colors"
-                  >
-                    <div className="w-2 h-2 shrink-0" style={{ backgroundColor: p.color }} />
-                    {p.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* cadence chip */}
-          <button
-            onClick={() => onToggleCarryOver(goal.id)}
-            data-testid={`carryover-toggle-${goal.id}`}
-            title={goal.carryOver ? "Runs until done — keeps your time across days. Click to make it a daily habit." : "Resets each midnight. Click to make it run until done."}
-            className={`hidden md:flex items-center gap-1 font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 border shrink-0 transition-colors ${
-              goal.carryOver ? "border-[#60A5FA]/40 text-[#60A5FA]" : "border-[#222] text-[#52525B] hover:text-[#71717A]"
-            }`}
-          >
-            {goal.carryOver ? <ArrowRight className="w-2.5 h-2.5" /> : <RefreshCw className="w-2.5 h-2.5" />}
-            {goal.carryOver ? "Until done" : "Daily"}
-          </button>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -173,46 +159,91 @@ export default function GoalCard({
           <span className={`font-mono text-[10px] tabular-nums ${active ? "text-[#00FF41]" : "text-[#71717A]"}`}>
             {formatGoalTime(prog.seconds)} / {goal.targetHours}h
           </span>
-          {!goal.done && workLabel && (
+
+          {/* Primary actions (always visible) */}
+          {!goal.done && !active && (
             <button
               onClick={() => onStartGoal(goal)}
+              data-testid={`goal-work-${goal.id}`}
               className="flex items-center gap-1 px-2 py-0.5 border border-[#333] font-mono text-[9px] text-[#71717A] hover:border-[#00FF41] hover:text-[#00FF41] transition-colors uppercase tracking-wider"
             >
               <Play className="w-2.5 h-2.5" />
               {workLabel}
             </button>
           )}
-          <button
-            onClick={() => onMarkGoalDone(goal.id)}
-            data-testid={`mark-done-${goal.id}`}
-            title={goal.done ? "Mark not done" : "Mark done"}
-            className={`transition-colors ${goal.done ? "text-[#00FF41]" : prog.reached ? "text-[#00FF41] animate-pulse" : "text-[#52525B] hover:text-[#00FF41]"}`}
-          >
-            <Check className="w-3.5 h-3.5" />
-          </button>
-          {addTimeOpen ? (
-            <AddTimeInline testid={`add-time-input-${goal.id}`} onAdd={(s) => onAddTimeGoal(goal.id, s)} onClose={() => setAddTimeOpen(false)} />
-          ) : (
+          <DoneButton done={goal.done} reached={prog.reached} onClick={() => onMarkGoalDone(goal.id)} testid={`mark-done-${goal.id}`} />
+
+          {/* Secondary actions (revealed on hover) */}
+          <div className={secondaryCls}>
+            {/* project dropdown */}
+            <div className="relative hidden sm:block">
+              <button
+                onClick={() => setProjMenu((o) => !o)}
+                title="Change linked project"
+                className="flex items-center gap-1 font-mono text-[10px] text-[#71717A] hover:text-[#EDEDED] transition-colors"
+              >
+                {linkedProject ? `via ${linkedProject.name}` : "any time"}
+                <ChevronDown className="w-2.5 h-2.5" />
+              </button>
+              {projMenu && (
+                <div className="absolute right-0 top-full mt-1 w-44 bg-[#0A0A0A] border border-[#333] z-50 shadow-lg max-h-56 overflow-y-auto">
+                  <button
+                    onClick={() => { onSetGoalProject(goal.id, null); setProjMenu(false); }}
+                    className="w-full text-left px-3 py-2 font-mono text-[11px] text-[#A1A1AA] hover:bg-[#1A1A1A] transition-colors"
+                  >
+                    Any tracked time
+                  </button>
+                  {projects.map((p) => (
+                    <button
+                      key={p.project_id}
+                      onClick={() => { onSetGoalProject(goal.id, p.project_id); setProjMenu(false); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 font-mono text-[11px] text-[#EDEDED] hover:bg-[#1A1A1A] transition-colors"
+                    >
+                      <div className="w-2 h-2 shrink-0" style={{ backgroundColor: p.color }} />
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* cadence toggle */}
             <button
-              onClick={() => setAddTimeOpen(true)}
-              data-testid={`add-time-${goal.id}`}
-              title="Add untracked time"
-              className="text-[#52525B] hover:text-[#A1A1AA] transition-colors"
+              onClick={() => onToggleCarryOver(goal.id)}
+              data-testid={`carryover-toggle-${goal.id}`}
+              title={goal.carryOver ? "Runs until done — keeps your time across days. Click to make it a daily habit." : "Resets each midnight. Click to make it run until done."}
+              className={`hidden md:flex items-center gap-1 font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 border transition-colors ${
+                goal.carryOver ? "border-[#60A5FA]/40 text-[#60A5FA]" : "border-[#222] text-[#52525B] hover:text-[#71717A]"
+              }`}
             >
-              <Clock className="w-3 h-3" />
+              {goal.carryOver ? <ArrowRight className="w-2.5 h-2.5" /> : <RefreshCw className="w-2.5 h-2.5" />}
+              {goal.carryOver ? "Until done" : "Daily"}
             </button>
-          )}
-          <button onClick={() => onEditGoal(goal)} className="text-[#52525B] hover:text-[#A1A1AA] transition-colors" title="Edit goal">
-            <Pencil className="w-3 h-3" />
-          </button>
-          <button
-            onClick={() => { if (confirmDel) onDeleteGoal(goal.id); else setConfirmDel(true); }}
-            onMouseLeave={() => setConfirmDel(false)}
-            className={`transition-colors ${confirmDel ? "text-[#FF003C]" : "text-[#52525B] hover:text-[#FF003C]"}`}
-            title={confirmDel ? "Click again to confirm" : "Delete goal"}
-          >
-            <X className="w-3 h-3" />
-          </button>
+
+            {targetOpen ? (
+              <TargetInline current={goal.targetHours} testid={`target-input-${goal.id}`} onSave={(h) => onSetGoalTarget(goal.id, h)} onClose={() => setTargetOpen(false)} />
+            ) : (
+              <button
+                onClick={() => setTargetOpen(true)}
+                data-testid={`adjust-target-${goal.id}`}
+                title="Adjust target (time this goal needs)"
+                className="text-[#52525B] hover:text-[#A1A1AA] transition-colors"
+              >
+                <Target className="w-3 h-3" />
+              </button>
+            )}
+            <button onClick={() => onEditGoal(goal)} className="text-[#52525B] hover:text-[#A1A1AA] transition-colors" title="Edit goal">
+              <Pencil className="w-3 h-3" />
+            </button>
+            <button
+              onClick={() => { if (confirmDel) onDeleteGoal(goal.id); else setConfirmDel(true); }}
+              onMouseLeave={() => setConfirmDel(false)}
+              className={`transition-colors ${confirmDel ? "text-[#FF003C]" : "text-[#52525B] hover:text-[#FF003C]"}`}
+              title={confirmDel ? "Click again to confirm" : "Delete goal"}
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -228,20 +259,21 @@ export default function GoalCard({
         </p>
       )}
 
-      {/* Subgoals panel */}
+      {/* Subtasks panel */}
       {expanded && (
         <div className="mt-2 ml-5 pl-3 border-l border-[#1A1A1A] space-y-2" data-testid={`subgoals-${goal.id}`}>
           {goal.subgoals.length === 0 && (
-            <p className="font-mono text-[10px] text-[#52525B]">No subgoals yet. Break this goal into steps below.</p>
+            <p className="font-mono text-[10px] text-[#52525B]">No subtasks yet. Break this goal into steps below.</p>
           )}
           {goal.subgoals.map((sub) => {
             const sp = computeSubgoalProgress(goal, sub, ctx);
             const sActive = isSubgoalActive(sub, ctx.currentTimer);
             const sTag = statusTag(sp, sub.done);
             const sHasEntries = sp.seconds > 0;
-            const sWork = sActive ? null : ctx.currentTimer ? "Switch" : sHasEntries ? "Continue" : "Work";
+            const sWork = sHasEntries ? "Continue" : "Work";
+            const subForce = targetSub === sub.id;
             return (
-              <div key={sub.id} className="space-y-1" data-testid={`subgoal-${sub.id}`}>
+              <div key={sub.id} className="space-y-1 group/sub" data-testid={`subgoal-${sub.id}`}>
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
                     {sActive && <span className="font-mono text-[8px] text-[#00FF41] uppercase tracking-widest shrink-0 animate-pulse">●</span>}
@@ -255,7 +287,7 @@ export default function GoalCard({
                     <span className={`font-mono text-[9px] tabular-nums ${sActive ? "text-[#00FF41]" : "text-[#71717A]"}`}>
                       {formatGoalTime(sp.seconds)} / {sub.targetHours}h
                     </span>
-                    {!sub.done && sWork && (
+                    {!sub.done && !sActive && (
                       <button
                         onClick={() => onStartSubgoal(goal, sub)}
                         className="flex items-center gap-1 px-1.5 py-0.5 border border-[#333] font-mono text-[8px] text-[#71717A] hover:border-[#00FF41] hover:text-[#00FF41] transition-colors uppercase tracking-wider"
@@ -264,23 +296,19 @@ export default function GoalCard({
                         {sWork}
                       </button>
                     )}
-                    <button
-                      onClick={() => onMarkSubgoalDone(goal.id, sub.id)}
-                      title={sub.done ? "Mark not done" : "Mark done"}
-                      className={`transition-colors ${sub.done ? "text-[#00FF41]" : sp.reached ? "text-[#00FF41] animate-pulse" : "text-[#52525B] hover:text-[#00FF41]"}`}
-                    >
-                      <Check className="w-3 h-3" />
-                    </button>
-                    {addTimeSub === sub.id ? (
-                      <AddTimeInline testid={`add-time-input-${sub.id}`} onAdd={(s) => onAddTimeSubgoal(goal.id, sub.id, s)} onClose={() => setAddTimeSub(null)} />
-                    ) : (
-                      <button onClick={() => setAddTimeSub(sub.id)} title="Add untracked time" className="text-[#52525B] hover:text-[#A1A1AA] transition-colors">
-                        <Clock className="w-2.5 h-2.5" />
+                    <DoneButton done={sub.done} reached={sp.reached} onClick={() => onMarkSubgoalDone(goal.id, sub.id)} size="xs" />
+                    <div className={`flex items-center gap-1.5 transition-opacity ${subForce ? "opacity-100" : "opacity-0 group-hover/sub:opacity-100 focus-within:opacity-100"}`}>
+                      {targetSub === sub.id ? (
+                        <TargetInline current={sub.targetHours} testid={`target-input-${sub.id}`} onSave={(h) => onSetSubgoalTarget(goal.id, sub.id, h)} onClose={() => setTargetSub(null)} />
+                      ) : (
+                        <button onClick={() => setTargetSub(sub.id)} title="Adjust target (time this subtask needs)" className="text-[#52525B] hover:text-[#A1A1AA] transition-colors">
+                          <Target className="w-2.5 h-2.5" />
+                        </button>
+                      )}
+                      <button onClick={() => onDeleteSubgoal(goal.id, sub.id)} className="text-[#52525B] hover:text-[#FF003C] transition-colors" title="Delete subtask">
+                        <X className="w-2.5 h-2.5" />
                       </button>
-                    )}
-                    <button onClick={() => onDeleteSubgoal(goal.id, sub.id)} className="text-[#52525B] hover:text-[#FF003C] transition-colors" title="Delete subgoal">
-                      <X className="w-2.5 h-2.5" />
-                    </button>
+                    </div>
                   </div>
                 </div>
                 <div className="w-full h-0.5 bg-[#1A1A1A]">
@@ -290,13 +318,13 @@ export default function GoalCard({
             );
           })}
 
-          {/* add subgoal */}
+          {/* add subtask */}
           <div className="flex items-center gap-2 pt-1">
             <input
               type="text"
               value={subLabel}
               onChange={(e) => setSubLabel(e.target.value)}
-              placeholder="Subgoal step"
+              placeholder="Subtask step"
               onKeyDown={(e) => e.key === "Enter" && addSubgoal()}
               data-testid={`add-subgoal-label-${goal.id}`}
               className="flex-1 min-w-0 bg-transparent border-b border-[#222] focus:border-[#00FF41] py-1 font-mono text-[11px] text-[#EDEDED] placeholder:text-[#3f3f46] outline-none transition-colors"

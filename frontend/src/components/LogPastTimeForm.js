@@ -2,17 +2,19 @@ import { useState } from "react";
 import { Plus, ChevronDown, X } from "lucide-react";
 import { toast } from "sonner";
 import { API } from "@/App";
+import TaskSuggestionDropdown from "@/components/TaskSuggestionDropdown";
 
 /**
  * Secondary, tucked-away way to backfill time you forgot to track.
  * Collapsed by default — a small "+ Log past time" link. Not a primary action.
  */
-export default function LogPastTimeForm({ projects = [], onLogged }) {
+export default function LogPastTimeForm({ projects = [], suggestions = [], onLogged }) {
   const [open, setOpen] = useState(false);
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
+  const [showSuggest, setShowSuggest] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const today = new Date().toISOString().split("T")[0];
@@ -85,14 +87,26 @@ export default function LogPastTimeForm({ projects = [], onLogged }) {
         </button>
       </div>
 
-      <input
-        type="text"
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        placeholder="What did you work on?"
-        autoFocus
-        className="w-full bg-transparent border-b border-[#333] focus:border-[#00FF41] py-1.5 font-mono text-xs text-[#EDEDED] placeholder:text-[#52525B] outline-none transition-colors"
-      />
+      <div className="relative">
+        <input
+          type="text"
+          value={description}
+          onChange={(e) => { setDescription(e.target.value); setShowSuggest(true); }}
+          onFocus={() => setShowSuggest(true)}
+          onBlur={() => setTimeout(() => setShowSuggest(false), 150)}
+          onKeyDown={(e) => e.key === "Escape" && setShowSuggest(false)}
+          placeholder="What did you work on? (type a goal to link it)"
+          autoFocus
+          className="w-full bg-transparent border-b border-[#333] focus:border-[#00FF41] py-1.5 font-mono text-xs text-[#EDEDED] placeholder:text-[#52525B] outline-none transition-colors"
+        />
+        {showSuggest && (
+          <TaskSuggestionDropdown
+            query={description}
+            suggestions={suggestions}
+            onPick={(m) => { setDescription(m.label); setProjectId(m.projectId || ""); setShowSuggest(false); }}
+          />
+        )}
+      </div>
 
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[120px]">

@@ -46,7 +46,10 @@ export function normalizeGoals(goals) {
   return (Array.isArray(goals) ? goals : []).map(normalizeGoal);
 }
 
-const isCountable = (entry) => entry && !entry.is_break && !entry.is_running;
+// "Belongs to a goal" only cares that it isn't a break — NOT whether it's
+// running. The running timer must match so live progress can tick; sumSeconds
+// skips running entries separately (their duration is still null anyway).
+const isCountable = (entry) => entry && !entry.is_break;
 const entryDate = (entry) => (entry.start_time || "").slice(0, 10);
 
 // A goal "owns" an entry by project (if linked) else by label — its own label
@@ -69,6 +72,7 @@ export function subgoalMatchesEntry(sub, entry) {
 
 function sumSeconds(entries, predicate, sinceDate) {
   return entries.reduce((total, entry) => {
+    if (entry.is_running) return total; // live elapsed is added separately
     if (!predicate(entry)) return total;
     if (sinceDate && entryDate(entry) < sinceDate) return total;
     return total + (entry.duration || 0);
@@ -97,15 +101,12 @@ export function computeGoalProgress(goal, { allEntries = [], currentTimer = null
   const today = todayStr();
   const sinceDate = goal.carryOver ? goal.startDate || today : today;
   const matches = (e) => goalMatchesEntry(goal, e);
-  // Manual "+ add time" on the goal itself plus any logged on its subgoals —
-  // subgoal time (tracked or manual) rolls up into the parent.
-  const subAdded = (goal.subgoals || []).reduce((t, s) => t + (s.addedSeconds || 0), 0);
-  const added = (goal.addedSeconds || 0) + subAdded;
-
+  // Progress = real tracked time only (sessions + live). Worked time you forgot
+  // to track is added via "Log past time", which creates a matching entry.
   const computed =
-    sumSeconds(allEntries, matches, sinceDate) + liveSeconds(currentTimer, matches) + added;
+    sumSeconds(allEntries, matches, sinceDate) + liveSeconds(currentTimer, matches);
   const todayPortion =
-    sumSeconds(allEntries, matches, today) + liveSeconds(currentTimer, matches) + added;
+    sumSeconds(allEntries, matches, today) + liveSeconds(currentTimer, matches);
 
   const effective = goal.done && goal.doneSeconds != null ? goal.doneSeconds : computed;
   const todaySeconds = goal.done && goal.doneSeconds != null ? Math.min(todayPortion, effective) : todayPortion;
@@ -116,12 +117,11 @@ export function computeSubgoalProgress(goal, sub, { allEntries = [], currentTime
   const today = todayStr();
   const sinceDate = goal.carryOver ? goal.startDate || today : today;
   const matches = (e) => subgoalMatchesEntry(sub, e);
-  const added = sub.addedSeconds || 0;
 
   const computed =
-    sumSeconds(allEntries, matches, sinceDate) + liveSeconds(currentTimer, matches) + added;
+    sumSeconds(allEntries, matches, sinceDate) + liveSeconds(currentTimer, matches);
   const todayPortion =
-    sumSeconds(allEntries, matches, today) + liveSeconds(currentTimer, matches) + added;
+    sumSeconds(allEntries, matches, today) + liveSeconds(currentTimer, matches);
 
   const effective = sub.done && sub.doneSeconds != null ? sub.doneSeconds : computed;
   const todaySeconds = sub.done && sub.doneSeconds != null ? Math.min(todayPortion, effective) : todayPortion;

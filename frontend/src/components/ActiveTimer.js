@@ -1,27 +1,26 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Mic, MicOff, Square, Play, ChevronDown, Loader2 } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Square, Play, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
-import { API } from "@/App";
+import TaskSuggestionDropdown from "@/components/TaskSuggestionDropdown";
 
-export default function ActiveTimer({ currentTimer, projects, onStart, onStop }) {
+const POMODORO_SECONDS = 25 * 60;
+
+export default function ActiveTimer({ currentTimer, projects, onStart, onStop, onSwitchProject, activeGoals = [], inputRef, suggestions = [] }) {
   const [elapsed, setElapsed] = useState(0);
   const [description, setDescription] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState("");
-  const [isListening, setIsListening] = useState(false);
   const [showProjectDropdown, setShowProjectDropdown] = useState(false);
-  const [voiceMode, setVoiceMode] = useState("idle"); // idle | listening | processing
-  const recognitionRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
+  const [showSuggest, setShowSuggest] = useState(false);
+  const [pomodoroMode, setPomodoroMode] = useState(false);
   const intervalRef = useRef(null);
   const dropdownRef = useRef(null);
+  const pomodoroFiredRef = useRef(false);
 
-  // Timer elapsed calculation
   useEffect(() => {
     if (currentTimer) {
+      pomodoroFiredRef.current = false;
       const startTime = new Date(currentTimer.start_time).getTime();
-      const tick = () => {
-        setElapsed(Math.floor((Date.now() - startTime) / 1000));
-      };
+      const tick = () => setElapsed(Math.floor((Date.now() - startTime) / 1000));
       tick();
       intervalRef.current = setInterval(tick, 1000);
       return () => clearInterval(intervalRef.current);
@@ -30,7 +29,13 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop })
     }
   }, [currentTimer]);
 
-  // Close dropdown on outside click
+  useEffect(() => {
+    if (pomodoroMode && currentTimer && elapsed >= POMODORO_SECONDS && !pomodoroFiredRef.current) {
+      pomodoroFiredRef.current = true;
+      onStop().then(() => toast.success("Pomodoro complete! Take a 5-minute break.", { duration: 6000 }));
+    }
+  }, [pomodoroMode, elapsed, currentTimer, onStop]);
+
   useEffect(() => {
     const handler = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
@@ -41,7 +46,7 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop })
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const formatElapsed = (s) => {
+  const formatTime = (s) => {
     const h = String(Math.floor(s / 3600)).padStart(2, "0");
     const m = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
     const sec = String(s % 60).padStart(2, "0");
@@ -67,252 +72,84 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop })
     toast.success("Timer stopped");
   };
 
-  // Use refs to avoid stale closures in voice callbacks
-  const currentTimerRef = useRef(currentTimer);
-  const selectedProjectIdRef = useRef(selectedProjectId);
-  useEffect(() => { currentTimerRef.current = currentTimer; }, [currentTimer]);
-  useEffect(() => { selectedProjectIdRef.current = selectedProjectId; }, [selectedProjectId]);
-
-  // Voice recognition
-  const retryCountRef = useRef(0);
-  const useWhisperRef = useRef(false); // true = skip Web Speech, go straight to Whisper
-
-  // Process transcript (shared between Web Speech and Whisper)
-  const processTranscript = useCallback((transcript) => {
-    const text = transcript.toLowerCase().trim();
-    if (!text) {
-      toast.error('No speech detected. Try again.');
-      return;
-    }
-
-    toast.info(`Heard: "${text}"`);
-
-    if (text.includes("stop") || text.includes("end") || text.includes("finish")) {
-      if (currentTimerRef.current) {
-        onStop().then(() => toast.success("Timer stopped by voice"));
-      } else {
-        toast.error("No timer running to stop");
-      }
-    } else {
-      let desc = text
-        .replace(/^(hey\s+)?(computer[,.]?\s*)?/, "")
-        .replace(/^(please\s+)?start\s*(working on|doing|task|studying|coding|tracking)?\s*/, "")
-        .trim();
-      if (!desc || desc.length < 2) {
-        desc = text.replace(/^(hey\s+)?(computer[,.]?\s*)?/, "").trim();
-      }
-      if (desc && desc.length >= 2) {
-        desc = desc.charAt(0).toUpperCase() + desc.slice(1);
-        setDescription(desc);
-        onStart(desc, selectedProjectIdRef.current || null)
-          .then(() => { setDescription(""); toast.success(`Started: ${desc}`); })
-          .catch((err) => toast.error(err.message));
-      } else {
-        toast.error('Try saying "Start studying biology" or "Stop task"');
-      }
-    }
-  }, [onStart, onStop]);
-
-  // Whisper-based voice input (records audio -> sends to backend -> Whisper transcribes)
-  const startWhisperListening = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
-      const chunks = [];
-
-      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        setVoiceMode("processing");
-
-        const blob = new Blob(chunks, { type: "audio/webm" });
-        if (blob.size < 100) {
-          toast.error("Recording too short. Hold the mic button and speak.");
-          setVoiceMode("idle");
-          setIsListening(false);
-          return;
-        }
-
-        const formData = new FormData();
-        formData.append("audio", blob, "voice.webm");
-
-        try {
-          const res = await fetch(`${API}/voice/transcribe`, {
-            method: "POST",
-            credentials: "include",
-            body: formData,
-          });
-          if (!res.ok) throw new Error("Transcription failed");
-          const data = await res.json();
-          if (data.text) {
-            processTranscript(data.text);
-          } else {
-            toast.error("Could not understand. Try speaking more clearly.");
-          }
-        } catch (err) {
-          toast.error("Voice processing failed. Please type your task instead.");
-        }
-        setVoiceMode("idle");
-        setIsListening(false);
-      };
-
-      mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start();
-      setIsListening(true);
-      setVoiceMode("listening");
-
-      // Auto-stop after 8 seconds
-      setTimeout(() => {
-        if (mediaRecorder.state === "recording") {
-          mediaRecorder.stop();
-        }
-      }, 8000);
-
-    } catch (err) {
-      if (err.name === "NotAllowedError") {
-        toast.error("Microphone blocked. Allow mic access in your browser settings.");
-      } else if (err.name === "NotFoundError") {
-        toast.error("No microphone found.");
-      } else {
-        toast.error("Could not access microphone.");
-      }
-      setIsListening(false);
-      setVoiceMode("idle");
-    }
-  }, [processTranscript]);
-
-  // Web Speech API attempt (with auto-fallback to Whisper)
-  const startListening = useCallback(() => {
-    // If Web Speech already failed before, go straight to Whisper
-    if (useWhisperRef.current) {
-      startWhisperListening();
-      return;
-    }
-
-    const hasSpeech = "webkitSpeechRecognition" in window || "SpeechRecognition" in window;
-    if (!hasSpeech) {
-      useWhisperRef.current = true;
-      startWhisperListening();
-      return;
-    }
-
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = "en-US";
-    recognition.maxAlternatives = 1;
-
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript.trim();
-      setIsListening(false);
-      setVoiceMode("idle");
-      retryCountRef.current = 0;
-      processTranscript(transcript);
-    };
-
-    recognition.onerror = (event) => {
-      setIsListening(false);
-      setVoiceMode("idle");
-      const err = event.error;
-
-      if (err === "network" || err === "service-not-allowed") {
-        // Web Speech API unavailable — switch to Whisper permanently for this session
-        useWhisperRef.current = true;
-        toast.info("Switching to server-side voice recognition...");
-        startWhisperListening();
-        return;
-      } else if (err === "no-speech") {
-        toast.error("No speech detected. Click the mic and speak clearly.");
-      } else if (err === "not-allowed") {
-        toast.error("Microphone blocked. Allow mic access in your browser settings.");
-      } else if (err === "aborted") {
-        // silent
-      } else if (err === "audio-capture") {
-        toast.error("No microphone found.");
-      } else {
-        toast.error(`Voice error: ${err}. Try again.`);
-      }
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-      setVoiceMode("idle");
-    };
-
-    recognitionRef.current = recognition;
-    try {
-      recognition.start();
-      setIsListening(true);
-      setVoiceMode("listening");
-    } catch (e) {
-      useWhisperRef.current = true;
-      startWhisperListening();
-    }
-  }, [processTranscript, startWhisperListening]);
-
-  const stopListening = () => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-    }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-      mediaRecorderRef.current.stop();
-      return; // onstop handler will process the audio
-    }
-    setIsListening(false);
-    setVoiceMode("idle");
-  };
-
   const selectedProject = projects.find((p) => p.project_id === selectedProjectId);
+  const displayTime = pomodoroMode && currentTimer
+    ? formatTime(Math.max(0, POMODORO_SECONDS - elapsed))
+    : formatTime(elapsed);
 
   return (
     <div
       className={`border p-6 transition-colors duration-200 ${
         currentTimer
-          ? "bg-[#0A0A0A] border-[#00FF41]/30 neon-border"
+          ? pomodoroMode
+            ? "bg-[#0A0A0A] border-[#FF8C00]/40"
+            : "bg-[#0A0A0A] border-[#00FF41]/30 neon-border"
           : "bg-[#0A0A0A] border-[#333]"
       }`}
       data-testid="active-timer"
     >
       {currentTimer ? (
-        /* === RUNNING STATE === */
         <div className="space-y-4">
-          {/* Top row: status + timer */}
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0 flex-1">
-              <div className="w-3 h-3 bg-[#00FF41] timer-pulse shrink-0" />
+              <div className={`w-3 h-3 shrink-0 timer-pulse ${pomodoroMode ? "bg-[#FF8C00]" : "bg-[#00FF41]"}`} />
               <div className="min-w-0 flex-1">
                 <p className="font-mono text-sm md:text-lg text-[#EDEDED] truncate" data-testid="timer-description">
                   {currentTimer.description}
                 </p>
-                {currentTimer.project_name && (
-                  <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: currentTimer.project_color || "#666" }}>
-                    {currentTimer.project_name}
-                  </span>
-                )}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="relative" ref={dropdownRef}>
+                    <button
+                      onClick={() => setShowProjectDropdown(!showProjectDropdown)}
+                      data-testid="running-project-selector"
+                      className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider hover:opacity-70 transition-opacity"
+                      style={{ color: currentTimer.project_color || "#555" }}
+                    >
+                      {currentTimer.project_name || "No project"}
+                      <ChevronDown className="w-2.5 h-2.5" />
+                    </button>
+                    {showProjectDropdown && (
+                      <div className="absolute left-0 top-full mt-1 w-48 bg-[#0A0A0A] border border-[#333] z-50 shadow-lg max-h-60 overflow-y-auto">
+                        <button
+                          onClick={() => { setShowProjectDropdown(false); onSwitchProject && onSwitchProject(null); }}
+                          className="w-full text-left px-3 py-2.5 font-mono text-xs text-[#666] hover:bg-[#1A1A1A] transition-colors"
+                        >
+                          No project
+                        </button>
+                        {projects.map((p) => (
+                          <button
+                            key={p.project_id}
+                            onClick={() => { setShowProjectDropdown(false); onSwitchProject && onSwitchProject(p.project_id); }}
+                            className="w-full flex items-center gap-2 px-3 py-2.5 font-mono text-xs text-[#EDEDED] hover:bg-[#1A1A1A] transition-colors"
+                          >
+                            <div className="w-2.5 h-2.5" style={{ backgroundColor: p.color }} />
+                            {p.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {pomodoroMode && (
+                    <span className="font-mono text-[10px] uppercase tracking-wider text-[#FF8C00]">🍅 Pomodoro</span>
+                  )}
+                  {activeGoals.length > 0 && (
+                    <span className="font-mono text-[9px] text-[#555] uppercase tracking-wider truncate">
+                      → {activeGoals.map((g) => g.label).join(" · ")}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
-            <div className="font-heading text-2xl md:text-4xl font-bold text-[#00FF41] tabular-nums tracking-tight neon-glow shrink-0" data-testid="timer-display">
-              {formatElapsed(elapsed)}
+            <div
+              className={`font-heading text-2xl md:text-4xl font-bold tabular-nums tracking-tight shrink-0 ${
+                pomodoroMode ? "text-[#FF8C00]" : "text-[#00FF41] neon-glow"
+              }`}
+              data-testid="timer-display"
+            >
+              {displayTime}
             </div>
           </div>
-          {/* Bottom row: actions */}
-          <div className="flex items-center gap-3 justify-end">
-            <button
-              onClick={isListening ? stopListening : startListening}
-              disabled={voiceMode === "processing"}
-              data-testid="voice-btn"
-              className={`p-2.5 md:p-3 border transition-colors duration-75 ${
-                voiceMode === "processing"
-                  ? "border-[#FFD600] text-[#FFD600] bg-[#FFD600]/10"
-                  : isListening
-                  ? "border-[#FF003C] text-[#FF003C] bg-[#FF003C]/10"
-                  : "border-[#333] text-[#666] hover:text-[#EDEDED] hover:border-[#555]"
-              }`}
-            >
-              {voiceMode === "processing" ? <Loader2 className="w-4 h-4 md:w-5 md:h-5 animate-spin" /> : isListening ? <MicOff className="w-4 h-4 md:w-5 md:h-5" /> : <Mic className="w-4 h-4 md:w-5 md:h-5" />}
-            </button>
+          <div className="flex items-center justify-end">
             <button
               onClick={handleStop}
               data-testid="stop-timer-btn"
@@ -324,50 +161,40 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop })
           </div>
         </div>
       ) : (
-        /* === IDLE STATE === */
         <div className="space-y-3">
-          {/* Input row */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={isListening ? stopListening : startListening}
-              disabled={voiceMode === "processing"}
-              data-testid="voice-btn-idle"
-              className={`p-3 md:p-4 border transition-colors duration-75 shrink-0 ${
-                voiceMode === "processing"
-                  ? "border-[#FFD600] bg-[#FFD600]/10"
-                  : isListening
-                  ? "border-[#00FF41] bg-[#00FF41]/10"
-                  : "border-[#333] hover:border-[#00FF41] hover:bg-[#00FF41]/5"
-              }`}
-            >
-              {voiceMode === "processing" ? (
-                <Loader2 className="w-5 h-5 md:w-6 md:h-6 text-[#FFD600] animate-spin" />
-              ) : isListening ? (
-                <div className="flex items-center gap-0.5 h-5 md:h-6 w-7 md:w-8">
-                  {[1, 2, 3, 4, 5].map((i) => (
-                    <div
-                      key={i}
-                      className="voice-bar w-1 bg-[#00FF41]"
-                      style={{ animationDelay: `${i * 0.1}s` }}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <Mic className="w-5 h-5 md:w-6 md:h-6 text-[#666]" />
-              )}
-            </button>
+          <div className="relative">
             <input
+              ref={inputRef}
               type="text"
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => { setDescription(e.target.value); setShowSuggest(true); }}
+              onFocus={() => setShowSuggest(true)}
+              onBlur={() => setTimeout(() => setShowSuggest(false), 150)}
               placeholder="What are you working on?"
               data-testid="task-description-input"
-              className="flex-1 min-w-0 bg-transparent border-b border-[#333] focus:border-[#00FF41] px-0 py-2.5 md:py-3 font-mono text-sm text-[#EDEDED] placeholder:text-[#333] outline-none transition-colors"
-              onKeyDown={(e) => e.key === "Enter" && handleStart()}
+              className="w-full bg-transparent border-b border-[#333] focus:border-[#00FF41] px-0 py-2.5 md:py-3 font-mono text-sm text-[#EDEDED] placeholder:text-[#333] outline-none transition-colors"
+              onKeyDown={(e) => { if (e.key === "Enter") handleStart(); if (e.key === "Escape") setShowSuggest(false); }}
             />
+            {showSuggest && (
+              <TaskSuggestionDropdown
+                query={description}
+                suggestions={suggestions}
+                onPick={(m) => { setDescription(m.label); setSelectedProjectId(m.projectId || ""); setShowSuggest(false); }}
+              />
+            )}
           </div>
-          {/* Action row */}
           <div className="flex items-center gap-3 justify-end">
+            <button
+              onClick={() => setPomodoroMode(!pomodoroMode)}
+              title="Toggle Pomodoro mode (25-minute sessions)"
+              className={`font-mono text-[10px] uppercase tracking-wider px-2.5 py-1.5 border transition-colors duration-75 ${
+                pomodoroMode
+                  ? "border-[#FF8C00] text-[#FF8C00] bg-[#FF8C00]/10"
+                  : "border-[#333] text-[#555] hover:border-[#555] hover:text-[#888]"
+              }`}
+            >
+              🍅 25m
+            </button>
             <div className="relative" ref={dropdownRef}>
               <button
                 onClick={() => setShowProjectDropdown(!showProjectDropdown)}
@@ -380,7 +207,6 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop })
                 <span className="truncate">{selectedProject?.name || "Project"}</span>
                 <ChevronDown className="w-3 h-3 ml-auto shrink-0" />
               </button>
-
               {showProjectDropdown && (
                 <div className="absolute right-0 bottom-full mb-1 md:bottom-auto md:top-full md:mt-1 w-48 bg-[#0A0A0A] border border-[#333] z-50 shadow-lg max-h-60 overflow-y-auto" data-testid="project-dropdown">
                   <button
@@ -412,18 +238,6 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop })
               Start
             </button>
           </div>
-        </div>
-      )}
-
-      {/* Voice hint */}
-      {isListening && voiceMode === "listening" && (
-        <div className="mt-3 font-mono text-[10px] text-[#00FF41] uppercase tracking-widest animate-pulse">
-          Listening... say "start studying biology" or "stop task" — click mic again to finish
-        </div>
-      )}
-      {voiceMode === "processing" && (
-        <div className="mt-3 font-mono text-[10px] text-[#FFD600] uppercase tracking-widest animate-pulse">
-          Processing your voice...
         </div>
       )}
     </div>

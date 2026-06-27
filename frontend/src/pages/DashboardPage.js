@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Play, Plus, X } from "lucide-react";
+import { Play, Plus, X, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { API } from "@/App";
 import AppShell from "@/components/AppShell";
@@ -115,11 +115,44 @@ export default function DashboardPage({ user }) {
     }
   };
 
-  // Goals
-  const saveGoals = (updated) => {
-    setGoals(updated);
-    localStorage.setItem(GOALS_KEY, JSON.stringify(updated));
+  // Goals — every change goes through saveGoals, which snapshots the prior
+  // state so any goal/subtask edit can be undone (⌘Z or the Undo button).
+  const goalsUndo = useRef([]);
+  const [undoDepth, setUndoDepth] = useState(0);
+
+  const persistGoals = (next) => {
+    setGoals(next);
+    localStorage.setItem(GOALS_KEY, JSON.stringify(next));
   };
+
+  const saveGoals = (updated) => {
+    goalsUndo.current.push(goals);
+    if (goalsUndo.current.length > 50) goalsUndo.current.shift();
+    setUndoDepth(goalsUndo.current.length);
+    persistGoals(updated);
+  };
+
+  const undoGoals = () => {
+    if (!goalsUndo.current.length) return;
+    const prev = goalsUndo.current.pop();
+    setUndoDepth(goalsUndo.current.length);
+    persistGoals(prev);
+    toast.success("Change undone");
+  };
+
+  // ⌘Z / Ctrl+Z undoes the last goal change (ignored while typing in a field)
+  useEffect(() => {
+    const onKey = (e) => {
+      const t = e.target;
+      const editable = t && ((t.tagName || "").match(/^(INPUT|TEXTAREA|SELECT)$/) || t.isContentEditable);
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !e.shiftKey && !editable) {
+        if (goalsUndo.current.length) { e.preventDefault(); undoGoals(); }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goals]);
 
   // Context for goal time math (live elapsed updates via the 1s tick)
   const goalCtx = { allEntries, currentTimer };
@@ -192,10 +225,12 @@ export default function DashboardPage({ user }) {
       ? { ...s, done: false, doneAt: null, doneSeconds: null }
       : { ...s, done: true, doneAt: new Date().toISOString(), doneSeconds: Math.round(subgoalSecondsNow(goals.find((g) => g.id === goalId), s)) });
 
-  const addTimeToGoal = (goalId, seconds) =>
-    mapGoal(goalId, (g) => ({ ...g, addedSeconds: (g.addedSeconds || 0) + seconds }));
-  const addTimeToSubgoal = (goalId, subId, seconds) =>
-    mapSubgoal(goalId, subId, (s) => ({ ...s, addedSeconds: (s.addedSeconds || 0) + seconds }));
+  // Adjust the TARGET time a goal/subgoal needs (extend or shrink). Worked time
+  // is added via "Log past time", not here.
+  const setGoalTarget = (goalId, hours) =>
+    mapGoal(goalId, (g) => ({ ...g, targetHours: hours }));
+  const setSubgoalTarget = (goalId, subId, hours) =>
+    mapSubgoal(goalId, subId, (s) => ({ ...s, targetHours: hours }));
 
   const toggleCarryOver = (goalId) =>
     mapGoal(goalId, (g) => ({ ...g, carryOver: !g.carryOver, startDate: g.startDate || todayStr() }));
@@ -290,6 +325,18 @@ export default function DashboardPage({ user }) {
   // Which goals is the current timer actively contributing to?
   const activeGoals = currentTimer ? goals.filter((g) => isGoalActive(g, currentTimer)) : [];
 
+  // Autocomplete suggestions: unfinished goals + subgoals, each carrying its
+  // project so picking one fills description + project in one tap.
+  const projectsById = Object.fromEntries(projects.map((p) => [p.project_id, p]));
+  const goalSuggestions = goals.flatMap((g) => {
+    const items = [];
+    if (!g.done) items.push({ label: g.label, projectId: g.projectId || null, project: projectsById[g.projectId], kind: "goal" });
+    for (const s of g.subgoals || []) {
+      if (!s.done) items.push({ label: s.label, projectId: g.projectId || null, project: projectsById[g.projectId], kind: "subgoal", parent: g.label });
+    }
+    return items;
+  });
+
   // Aggregate pacing across goals + subgoals
   const pacing = computePacing(goals, goalCtx);
   const pacingMeta = {
@@ -320,6 +367,7 @@ export default function DashboardPage({ user }) {
           onSwitchProject={handleSwitchProject}
           activeGoals={activeGoals}
           inputRef={timerInputRef}
+          suggestions={goalSuggestions}
         />
 
         {/* Quick Actions — idle only */}
@@ -379,12 +427,24 @@ export default function DashboardPage({ user }) {
                 </span>
               )}
             </div>
-            <button
-              onClick={() => setShowGoalForm(!showGoalForm)}
-              className="font-mono text-[10px] text-[#71717A] hover:text-[#00FF41] uppercase tracking-wider transition-colors shrink-0"
-            >
-              {showGoalForm ? "— Cancel" : "+ Add Goal"}
-            </button>
+            <div className="flex items-center gap-3 shrink-0">
+              {undoDepth > 0 && (
+                <button
+                  onClick={undoGoals}
+                  title="Undo last change (⌘Z)"
+                  data-testid="undo-goals"
+                  className="flex items-center gap-1 font-mono text-[10px] text-[#71717A] hover:text-[#EDEDED] uppercase tracking-wider transition-colors"
+                >
+                  <Undo2 className="w-3 h-3" /> Undo
+                </button>
+              )}
+              <button
+                onClick={() => setShowGoalForm(!showGoalForm)}
+                className="font-mono text-[10px] text-[#71717A] hover:text-[#00FF41] uppercase tracking-wider transition-colors"
+              >
+                {showGoalForm ? "— Cancel" : "+ Add Goal"}
+              </button>
+            </div>
           </div>
 
           {goals.length === 0 && !showGoalForm && (
@@ -466,8 +526,8 @@ export default function DashboardPage({ user }) {
                 onStartSubgoal={startForSubgoal}
                 onMarkGoalDone={markGoalDone}
                 onMarkSubgoalDone={markSubgoalDone}
-                onAddTimeGoal={addTimeToGoal}
-                onAddTimeSubgoal={addTimeToSubgoal}
+                onSetGoalTarget={setGoalTarget}
+                onSetSubgoalTarget={setSubgoalTarget}
                 onAddSubgoal={addSubgoal}
                 onDeleteSubgoal={deleteSubgoal}
                 onEditGoal={(g) => setEditingGoal({ ...g })}
@@ -546,7 +606,7 @@ export default function DashboardPage({ user }) {
         </div>
 
         {/* Forgot to track? Backfill a past entry (secondary action) */}
-        <LogPastTimeForm projects={projects} onLogged={fetchAll} />
+        <LogPastTimeForm projects={projects} suggestions={goalSuggestions} onLogged={fetchAll} />
 
         {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
