@@ -105,6 +105,45 @@ export default function DashboardPage({ user }) {
     }
   };
 
+  // Pause the running task and start a neutral break, remembering what to
+  // return to. desc/projectId let Pomodoro pass the just-finished task in.
+  const handleTimerBreak = async (desc, projectId) => {
+    try {
+      const resumeDesc = desc ?? currentTimer?.description ?? null;
+      const resumeProject = projectId ?? currentTimer?.project_id ?? null;
+      if (currentTimer) await handleTimerStop();
+      const res = await fetch(`${API}/timer/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ entry_type: "pause", resume_description: resumeDesc, resume_project_id: resumeProject }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Failed to start break");
+      }
+      await fetchAll();
+      toast.success("On a break");
+    } catch (err) {
+      toast.error(err.message || "Failed to start break");
+    }
+  };
+
+  // End the break; if it knows the prior task, resume it, else just go idle.
+  const handleTimerResume = async () => {
+    const resumeDesc = currentTimer?.resume_description || null;
+    const resumeProject = currentTimer?.resume_project_id || null;
+    try {
+      await handleTimerStop();
+      if (resumeDesc) {
+        await handleTimerStart(resumeDesc, resumeProject);
+        toast.success(`Back to: ${resumeDesc}`);
+      }
+    } catch (err) {
+      toast.error(err.message || "Failed to resume");
+    }
+  };
+
   const handleSwitchProject = async (newProjectId) => {
     if (!currentTimer) return;
     const desc = currentTimer.description;
@@ -383,6 +422,8 @@ export default function DashboardPage({ user }) {
           projects={projects}
           onStart={handleTimerStart}
           onStop={handleTimerStop}
+          onBreak={handleTimerBreak}
+          onResume={handleTimerResume}
           onSwitchProject={handleSwitchProject}
           activeGoals={activeGoals}
           inputRef={timerInputRef}

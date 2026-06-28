@@ -12,6 +12,9 @@ export function getEntryColor(entry) {
   if (entryType === "scheduled") {
     return entry.schedule_color || "#1E40AF";
   }
+  if (entryType === "pause") {
+    return "#2DD4BF";
+  }
   if (entryType === "break" || entry.is_break) {
     return "#262626";
   }
@@ -24,6 +27,7 @@ export function getEntryColor(entry) {
 export function getEntryLabel(entry) {
   const entryType = entry.entry_type || (entry.is_break ? "break" : "task");
   if (entryType === "scheduled") return "Committed";
+  if (entryType === "pause") return "Break";
   if (entryType === "break") return "Drifted";
   return "On purpose";
 }

@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Heart, MinusCircle, Moon, MoonStar } from "lucide-react";
+import { Heart, MinusCircle, Moon, MoonStar, Coffee } from "lucide-react";
 import { CATEGORIES, projectCategory } from "@/lib/categories";
 
 const AWAKE_HOURS = 16;
+const BREAK_COLOR = "#2DD4BF";
 
 // Resolve an entry's category: an explicit (reconciled) category wins, else fall
 // back to its project's category.
@@ -15,25 +16,31 @@ export default function StatsBar({ dailyData, currentTimer, projects = [], onRec
   const [filter, setFilter] = useState("all");
   const baseProductive = dailyData?.productive_seconds || 0;
   const breakTime = dailyData?.break_seconds || 0;
-  const scheduled = dailyData?.scheduled_seconds || 0;
+  const scheduled = dailyData?.scheduled_seconds || 0; // daytime commitments (in the awake day)
+  const sleep = dailyData?.sleep_seconds || 0;          // overnight — outside the awake day
+  const basePaused = dailyData?.paused_seconds || 0;
 
-  // Live elapsed: while a real (non-break) timer runs, count it toward
-  // "on purpose" in real time. StatsBar re-renders each second via its parent.
-  const liveElapsed =
-    currentTimer && !currentTimer.is_break
-      ? Math.max(0, Math.floor((Date.now() - new Date(currentTimer.start_time).getTime()) / 1000))
-      : 0;
+  // Live elapsed: the running entry's seconds, routed to the right bucket.
+  const liveSeconds = currentTimer
+    ? Math.max(0, Math.floor((Date.now() - new Date(currentTimer.start_time).getTime()) / 1000))
+    : 0;
+  const liveType = currentTimer ? (currentTimer.entry_type || (currentTimer.is_break ? "break" : "task")) : null;
+  const liveElapsed = liveType === "task" ? liveSeconds : 0; // only real work counts as on purpose
+  const livePaused = liveType === "pause" ? liveSeconds : 0;
   const onPurpose = baseProductive + liveElapsed;
+  const paused = basePaused + livePaused;
 
-  const tracked = onPurpose + breakTime + scheduled;
+  // Sleep stays outside the 16h awake day; daytime commitments count against it.
+  const tracked = onPurpose + breakTime + paused + scheduled;
   const awakeSeconds = AWAKE_HOURS * 3600;
   const untracked = Math.max(0, awakeSeconds - tracked);
+  const committed = scheduled + sleep;
 
   // Per-category breakdown of "on purpose" time (today's task entries + live timer)
   const projectsById = Object.fromEntries(projects.map((p) => [p.project_id, p]));
   const catSeconds = {};
   for (const e of dailyData?.entries || []) {
-    if (e.is_break || e.entry_type === "break" || e.entry_type === "scheduled") continue;
+    if (e.is_break || e.entry_type === "break" || e.entry_type === "scheduled" || e.entry_type === "pause") continue;
     const cat = entryCategory(e, projectsById);
     catSeconds[cat] = (catSeconds[cat] || 0) + (e.duration || 0);
   }
@@ -101,7 +108,7 @@ export default function StatsBar({ dailyData, currentTimer, projects = [], onRec
       </div>
 
       {/* stat cards */}
-      <div className="grid grid-cols-3 gap-3 md:gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <div className="bg-[#0A0A0A] border border-[#333] p-3 md:p-4" data-testid="stat-productive">
           <div className="flex items-center gap-2 mb-1.5 md:mb-2">
             <Heart className="w-3 h-3 md:w-3.5 md:h-3.5 text-[#00FF41]" />
@@ -109,6 +116,15 @@ export default function StatsBar({ dailyData, currentTimer, projects = [], onRec
           </div>
           <p className="font-heading text-xl md:text-2xl font-bold text-[#00FF41]">{formatHours(onPurpose)}</p>
           <p className="font-mono text-[9px] text-[#52525B] mt-1">tracked, on purpose</p>
+        </div>
+
+        <div className="bg-[#0A0A0A] border border-[#333] p-3 md:p-4" data-testid="stat-paused">
+          <div className="flex items-center gap-2 mb-1.5 md:mb-2">
+            <Coffee className="w-3 h-3 md:w-3.5 md:h-3.5" style={{ color: BREAK_COLOR }} />
+            <span className="font-mono text-[9px] md:text-[10px] text-[#71717A] uppercase tracking-widest">Break</span>
+          </div>
+          <p className="font-heading text-xl md:text-2xl font-bold" style={{ color: BREAK_COLOR }}>{formatHours(paused)}</p>
+          <p className="font-mono text-[9px] text-[#52525B] mt-1">intentional rest</p>
         </div>
 
         <div className="bg-[#0A0A0A] border border-[#333] p-3 md:p-4" data-testid="stat-break">
@@ -125,8 +141,8 @@ export default function StatsBar({ dailyData, currentTimer, projects = [], onRec
             <Moon className="w-3 h-3 md:w-3.5 md:h-3.5 text-[#60A5FA]" />
             <span className="font-mono text-[9px] md:text-[10px] text-[#71717A] uppercase tracking-widest">Committed</span>
           </div>
-          <p className="font-heading text-xl md:text-2xl font-bold text-[#60A5FA]">{formatHours(scheduled)}</p>
-          <p className="font-mono text-[9px] text-[#52525B] mt-1">scheduled commitments</p>
+          <p className="font-heading text-xl md:text-2xl font-bold text-[#60A5FA]">{formatHours(committed)}</p>
+          <p className="font-mono text-[9px] text-[#52525B] mt-1">{sleep > 0 ? `incl. ${formatHours(sleep)} sleep` : "scheduled commitments"}</p>
         </div>
       </div>
 

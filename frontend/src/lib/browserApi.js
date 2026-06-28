@@ -128,17 +128,117 @@ function finishedForDate(state, date) {
   );
 }
 
+// Minutes since midnight for a "HH:MM" string.
+function hhmmToMinutes(hhmm) {
+  const [h, m] = String(hhmm || "").split(":").map(Number);
+  return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
+}
+
+// Mon=0..Sun=6 (matches SchedulesPage DAYS and startOfWeek's (getUTCDay()+6)%7).
+function weekdayIndex(date) {
+  return (new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7;
+}
+
+function isoForMinutes(date, minutes) {
+  const base = new Date(`${date}T00:00:00Z`);
+  base.setUTCMinutes(minutes);
+  return base.toISOString();
+}
+
+// Subtract any portions of [winStart, winEnd] (minutes since midnight on `date`)
+// that overlap a real tracked entry, leaving only the uncovered sub-intervals.
+// Mirrors the backend's gap-only fill so committed time never double-counts.
+function subtractBusy(date, winStart, winEnd, busy) {
+  let free = [[winStart, winEnd]];
+  for (const [bStart, bEnd] of busy) {
+    const next = [];
+    for (const [s, e] of free) {
+      if (bEnd <= s || bStart >= e) { next.push([s, e]); continue; }
+      if (bStart > s) next.push([s, Math.min(bStart, e)]);
+      if (bEnd < e) next.push([Math.max(bEnd, s), e]);
+    }
+    free = next;
+  }
+  return free.filter(([s, e]) => e - s >= 1);
+}
+
+// Materialize recurring schedules into virtual "scheduled" entries for `date`.
+// Overnight blocks (end<=start, e.g. sleep 23:00->07:00) are tagged sleepLike so
+// they show in Committed but stay OUTSIDE the 16h-awake math.
+function scheduledEntriesForDate(state, date) {
+  const schedules = state.schedules || [];
+  if (!schedules.length) return [];
+  const idx = weekdayIndex(date);
+  const prevIdx = (idx + 6) % 7;
+  // Busy = real tracked (non-scheduled) entries on this date, in minutes.
+  const busy = finishedForDate(state, date)
+    .filter((e) => entryType(e) !== "scheduled")
+    .map((e) => {
+      const s = new Date(e.start_time), en = new Date(e.end_time || e.start_time);
+      return [s.getUTCHours() * 60 + s.getUTCMinutes(), en.getUTCHours() * 60 + en.getUTCMinutes()];
+    });
+
+  const out = [];
+  let counter = 0;
+  const emit = (sched, startMin, endMin, sleepLike) => {
+    for (const [s, e] of subtractBusy(date, startMin, endMin, busy)) {
+      out.push({
+        entry_id: `sched_${sched.schedule_id}_${date}_${counter++}`,
+        user_id: USER_ID,
+        project_id: null,
+        description: sched.title || "Committed",
+        start_time: isoForMinutes(date, s),
+        end_time: isoForMinutes(date, e),
+        duration: (e - s) * 60,
+        is_break: false,
+        is_running: false,
+        entry_type: "scheduled",
+        schedule_id: sched.schedule_id,
+        schedule_color: sched.color,
+        sleepLike,
+        virtual: true,
+      });
+    }
+  };
+
+  for (const sched of schedules) {
+    const days = sched.day_of_week || [];
+    const startMin = hhmmToMinutes(sched.start_time);
+    const endMin = hhmmToMinutes(sched.end_time);
+    const overnight = endMin <= startMin;
+    if (days.includes(idx)) {
+      // Same-day window, or the evening portion of an overnight block.
+      emit(sched, startMin, overnight ? 24 * 60 : endMin, overnight);
+    }
+    if (overnight && days.includes(prevIdx)) {
+      // Morning portion of an overnight block that began the previous evening.
+      emit(sched, 0, endMin, true);
+    }
+  }
+  return out;
+}
+
+// Real entries plus virtual scheduled blocks, for the daily/timeline path only.
+function entriesForDate(state, date) {
+  return [...finishedForDate(state, date), ...scheduledEntriesForDate(state, date)]
+    .sort((a, b) => a.start_time.localeCompare(b.start_time));
+}
+
 function analyticsForDate(state, date) {
-  const entries = finishedForDate(state, date);
+  const entries = entriesForDate(state, date);
   const totals = entries.reduce(
     (result, entry) => {
       const duration = entry.duration || 0;
-      if (entryType(entry) === "scheduled") result.scheduled_seconds += duration;
-      else if (entryType(entry) === "break") result.break_seconds += duration;
+      const type = entryType(entry);
+      if (type === "scheduled") {
+        if (entry.sleepLike) result.sleep_seconds += duration;
+        else result.scheduled_seconds += duration;
+      } else if (type === "pause") result.paused_seconds += duration;
+      else if (type === "break") result.break_seconds += duration;
       else result.productive_seconds += duration;
       return result;
     },
-    { productive_seconds: 0, break_seconds: 0, scheduled_seconds: 0 }
+    { productive_seconds: 0, break_seconds: 0, scheduled_seconds: 0, sleep_seconds: 0, paused_seconds: 0 }
   );
   return { date, ...totals, entries };
 }
@@ -166,7 +266,8 @@ function weeklyAnalytics(state) {
     const totals = analyticsForDate(state, date);
     totalProductive += totals.productive_seconds;
     totalBreak += totals.break_seconds;
-    totalScheduled += totals.scheduled_seconds;
+    // Committed totals include both daytime commitments and sleep.
+    totalScheduled += totals.scheduled_seconds + totals.sleep_seconds;
     return {
       date,
       day_name: new Date(`${date}T00:00:00Z`).toLocaleDateString("en", {
@@ -176,7 +277,7 @@ function weeklyAnalytics(state) {
       ...totals,
       productive_hours: Number((totals.productive_seconds / 3600).toFixed(2)),
       break_hours: Number((totals.break_seconds / 3600).toFixed(2)),
-      scheduled_hours: Number((totals.scheduled_seconds / 3600).toFixed(2)),
+      scheduled_hours: Number(((totals.scheduled_seconds + totals.sleep_seconds) / 3600).toFixed(2)),
     };
   });
   return {
@@ -349,21 +450,40 @@ async function handleApiRequest(path, method, request) {
   if (path === "/api/timer/start" && method === "POST") {
     if (state.entries.some((entry) => entry.is_running)) return json({ detail: "Timer already running. Stop it first." }, 400);
     const now = new Date().toISOString();
-    addGapEntry(state, now);
+    const isPause = body.entry_type === "pause" || body.is_pause === true;
+    // Don't backfill a drift gap when starting an intentional break.
+    if (!isPause) addGapEntry(state, now);
     const defaultProject = state.projects.find((project) => project.is_default);
-    const entry = {
-      entry_id: id("entry"),
-      user_id: USER_ID,
-      project_id: body.project_id || defaultProject?.project_id || null,
-      description: body.description || "Working",
-      start_time: now,
-      end_time: null,
-      duration: null,
-      is_break: false,
-      is_running: true,
-      entry_type: "task",
-      schedule_id: null,
-    };
+    const entry = isPause
+      ? {
+          entry_id: id("entry"),
+          user_id: USER_ID,
+          project_id: null,
+          description: body.description || "Break",
+          start_time: now,
+          end_time: null,
+          duration: null,
+          is_break: false,
+          is_running: true,
+          entry_type: "pause",
+          schedule_id: null,
+          // Remember what to return to when the break ends with "Resume".
+          resume_description: body.resume_description || null,
+          resume_project_id: body.resume_project_id || null,
+        }
+      : {
+          entry_id: id("entry"),
+          user_id: USER_ID,
+          project_id: body.project_id || defaultProject?.project_id || null,
+          description: body.description || "Working",
+          start_time: now,
+          end_time: null,
+          duration: null,
+          is_break: false,
+          is_running: true,
+          entry_type: "task",
+          schedule_id: null,
+        };
     state.entries.push(entry);
     await saveState(state);
     return json(enrichEntries([entry], state)[0]);

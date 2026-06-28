@@ -85,7 +85,7 @@ export default function RecentEntries({ entries, onRefresh }) {
               >
                 {formatDuration(entry.duration)}
               </span>
-              {!entry.is_break && !entry.is_running && (
+              {!entry.is_break && !entry.is_running && !entry.virtual && entry.entry_type !== "scheduled" && (
                 <button
                   onClick={() => deleteEntry(entry.entry_id)}
                   data-testid={`delete-recent-${entry.entry_id}`}

@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { Square, Play, ChevronDown } from "lucide-react";
+import { Square, Play, ChevronDown, Coffee } from "lucide-react";
 import { toast } from "sonner";
 import TaskSuggestionDropdown from "@/components/TaskSuggestionDropdown";
 
 const POMODORO_SECONDS = 25 * 60;
+const BREAK_COLOR = "#2DD4BF";
 
-export default function ActiveTimer({ currentTimer, projects, onStart, onStop, onSwitchProject, activeGoals = [], inputRef, suggestions = [] }) {
+export default function ActiveTimer({ currentTimer, projects, onStart, onStop, onBreak, onResume, onSwitchProject, activeGoals = [], inputRef, suggestions = [] }) {
   const [elapsed, setElapsed] = useState(0);
   const [description, setDescription] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState("");
@@ -30,11 +31,13 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop, o
   }, [currentTimer]);
 
   useEffect(() => {
-    if (pomodoroMode && currentTimer && elapsed >= POMODORO_SECONDS && !pomodoroFiredRef.current) {
+    const isTask = currentTimer && currentTimer.entry_type !== "pause";
+    if (pomodoroMode && isTask && elapsed >= POMODORO_SECONDS && !pomodoroFiredRef.current) {
       pomodoroFiredRef.current = true;
-      onStop().then(() => toast.success("Pomodoro complete! Take a 5-minute break.", { duration: 6000 }));
+      toast.success("Pomodoro complete! Starting a 5-minute break.", { duration: 6000 });
+      onBreak && onBreak(currentTimer.description, currentTimer.project_id || null);
     }
-  }, [pomodoroMode, elapsed, currentTimer, onStop]);
+  }, [pomodoroMode, elapsed, currentTimer, onBreak]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -72,8 +75,19 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop, o
     toast.success("Timer stopped");
   };
 
+  const isPaused = currentTimer?.entry_type === "pause";
+
+  const handleBreak = async () => {
+    if (onBreak) await onBreak();
+  };
+
+  const handleEndBreak = async () => {
+    await onStop();
+    toast.success("Break ended");
+  };
+
   const selectedProject = projects.find((p) => p.project_id === selectedProjectId);
-  const displayTime = pomodoroMode && currentTimer
+  const displayTime = pomodoroMode && currentTimer && !isPaused
     ? formatTime(Math.max(0, POMODORO_SECONDS - elapsed))
     : formatTime(elapsed);
 
@@ -81,7 +95,9 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop, o
     <div
       className={`border p-6 transition-colors duration-200 ${
         currentTimer
-          ? pomodoroMode
+          ? isPaused
+            ? "bg-[#0A0A0A] border-[#2DD4BF]/40"
+            : pomodoroMode
             ? "bg-[#0A0A0A] border-[#FF8C00]/40"
             : "bg-[#0A0A0A] border-[#00FF41]/30 neon-border"
           : "bg-[#0A0A0A] border-[#333]"
@@ -92,7 +108,7 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop, o
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0 flex-1">
-              <div className={`w-3 h-3 shrink-0 timer-pulse ${pomodoroMode ? "bg-[#FF8C00]" : "bg-[#00FF41]"}`} />
+              <div className={`w-3 h-3 shrink-0 timer-pulse ${isPaused ? "bg-[#2DD4BF]" : pomodoroMode ? "bg-[#FF8C00]" : "bg-[#00FF41]"}`} />
               <div className="min-w-0 flex-1">
                 <p className="font-mono text-sm md:text-lg text-[#EDEDED] truncate" data-testid="timer-description">
                   {currentTimer.description}
@@ -142,22 +158,54 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop, o
             </div>
             <div
               className={`font-heading text-2xl md:text-4xl font-bold tabular-nums tracking-tight shrink-0 ${
-                pomodoroMode ? "text-[#FF8C00]" : "text-[#00FF41] neon-glow"
+                isPaused ? "text-[#2DD4BF]" : pomodoroMode ? "text-[#FF8C00]" : "text-[#00FF41] neon-glow"
               }`}
               data-testid="timer-display"
             >
               {displayTime}
             </div>
           </div>
-          <div className="flex items-center justify-end">
-            <button
-              onClick={handleStop}
-              data-testid="stop-timer-btn"
-              className="flex items-center gap-2 bg-[#FF003C] text-white font-mono text-xs font-bold uppercase tracking-wider px-4 md:px-5 py-2.5 md:py-3 hover:bg-[#CC0030] transition-colors duration-75"
-            >
-              <Square className="w-4 h-4" />
-              Stop
-            </button>
+          <div className="flex items-center justify-end gap-3">
+            {isPaused ? (
+              <>
+                <button
+                  onClick={() => onResume && onResume()}
+                  data-testid="resume-timer-btn"
+                  className="flex items-center gap-2 bg-[#00FF41] text-black font-mono text-xs font-bold uppercase tracking-wider px-4 md:px-5 py-2.5 md:py-3 hover:bg-[#00CC33] transition-colors duration-75"
+                >
+                  <Play className="w-4 h-4" />
+                  Resume
+                </button>
+                <button
+                  onClick={handleEndBreak}
+                  data-testid="end-break-btn"
+                  className="flex items-center gap-2 border border-[#333] text-[#A1A1AA] font-mono text-xs font-bold uppercase tracking-wider px-4 py-2.5 md:py-3 hover:border-[#555] hover:text-[#EDEDED] transition-colors duration-75"
+                >
+                  <Square className="w-4 h-4" />
+                  End break
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={handleBreak}
+                  data-testid="break-timer-btn"
+                  className="flex items-center gap-2 border font-mono text-xs font-bold uppercase tracking-wider px-4 py-2.5 md:py-3 transition-colors duration-75"
+                  style={{ borderColor: BREAK_COLOR, color: BREAK_COLOR }}
+                >
+                  <Coffee className="w-4 h-4" />
+                  Break
+                </button>
+                <button
+                  onClick={handleStop}
+                  data-testid="stop-timer-btn"
+                  className="flex items-center gap-2 bg-[#FF003C] text-white font-mono text-xs font-bold uppercase tracking-wider px-4 md:px-5 py-2.5 md:py-3 hover:bg-[#CC0030] transition-colors duration-75"
+                >
+                  <Square className="w-4 h-4" />
+                  Stop
+                </button>
+              </>
+            )}
           </div>
         </div>
       ) : (
