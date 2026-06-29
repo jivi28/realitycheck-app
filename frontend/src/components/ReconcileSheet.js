@@ -5,16 +5,28 @@ import { API } from "@/App";
 import { CATEGORIES, NOT_PURPOSEFUL, categoryMeta } from "@/lib/categories";
 import { formatGoalTime } from "@/lib/goals";
 
-const CHIPS = [...CATEGORIES, NOT_PURPOSEFUL];
+// A break is only ever Recharge (on purpose) or Drift — so we surface both
+// directly, no ambiguous "Break" umbrella. The two break outcomes lead in both
+// modes; "gap" mode additionally offers the productive categories in case the
+// untracked time was actually work.
+const RECHARGE = CATEGORIES.find((c) => c.id === "rest");
+const PRODUCTIVE = CATEGORIES.filter((c) => c.id !== "rest"); // focus, health, social, care
+const BREAK_CHIPS = [RECHARGE, NOT_PURPOSEFUL];
+const GAP_CHIPS = [RECHARGE, NOT_PURPOSEFUL, ...PRODUCTIVE];
 
 /**
  * "Account for the gap" sheet. Opens when you tap the untracked bar/row after
- * being away. By default you pick the ONE thing you were doing and it logs a
- * single clean entry for the whole gap. If it was actually more than one thing,
- * flip on "split into parts" and set the minutes per part yourself. Writes normal
+ * being away, OR (mode="break") when you resume from a break to resolve what it
+ * was. By default you pick the ONE thing you were doing and it logs a single
+ * clean entry for the whole window. If it was actually more than one thing, flip
+ * on "split into parts" and set the minutes per part yourself. Writes normal
  * entries so the rest of the app (score, timeline, breakdown) updates for free.
+ * In break mode, `replaceEntryId` is the pending entry to delete first so the
+ * window isn't double-counted.
  */
-export default function ReconcileSheet({ open, awaySeconds, gapStart, gapEnd, onClose, onLogged }) {
+export default function ReconcileSheet({ open, awaySeconds, gapStart, gapEnd, onClose, onLogged, mode = "gap", replaceEntryId = null }) {
+  const isBreakMode = mode === "break";
+  const CHIPS = isBreakMode ? BREAK_CHIPS : GAP_CHIPS;
   const [selected, setSelected] = useState(null); // single category id
   const [note, setNote] = useState("");
   const [showNote, setShowNote] = useState(false);
@@ -59,7 +71,7 @@ export default function ReconcileSheet({ open, awaySeconds, gapStart, gapEnd, on
     });
 
   const enterSplit = () => {
-    setParts([{ category: selected || CATEGORIES[0].id, minutes: gapMinutes }]);
+    setParts([{ category: selected || CHIPS[0].id, minutes: gapMinutes }]);
     setSplitMode(true);
   };
   const exitSplit = () => setSplitMode(false);
@@ -67,11 +79,19 @@ export default function ReconcileSheet({ open, awaySeconds, gapStart, gapEnd, on
   const updatePart = (i, patch) =>
     setParts((prev) => prev.map((p, idx) => (idx === i ? { ...p, ...patch } : p)));
   const addPart = () =>
-    setParts((prev) => [...prev, { category: CATEGORIES[0].id, minutes: Math.max(0, gapMinutes - splitTotalMin) }]);
+    setParts((prev) => [...prev, { category: CHIPS[0].id, minutes: Math.max(0, gapMinutes - splitTotalMin) }]);
   const removePart = (i) => setParts((prev) => prev.filter((_, idx) => idx !== i));
 
   const splitTotalMin = parts.reduce((sum, p) => sum + (Number(p.minutes) || 0), 0);
   const splitRemainingMin = gapMinutes - splitTotalMin;
+
+  // In break mode, the pending break entry has already been logged (as the Drift
+  // default); resolving replaces it, so delete it before writing the real entries.
+  const removePending = async () => {
+    if (replaceEntryId) {
+      await fetch(`${API}/entries/${replaceEntryId}`, { method: "DELETE", credentials: "include" });
+    }
+  };
 
   const submit = async () => {
     setSubmitting(true);
@@ -80,6 +100,7 @@ export default function ReconcileSheet({ open, awaySeconds, gapStart, gapEnd, on
         const valid = parts.filter((p) => p.category && Number(p.minutes) > 0);
         if (!valid.length) { toast.error("Add at least one part"); setSubmitting(false); return; }
         if (splitTotalMin > gapMinutes) { toast.error("Parts add up to more than the gap"); setSubmitting(false); return; }
+        await removePending();
         const gapEndMs = new Date(gapEnd).getTime();
         let cursor = new Date(gapStart).getTime();
         for (const p of valid) {
@@ -96,6 +117,7 @@ export default function ReconcileSheet({ open, awaySeconds, gapStart, gapEnd, on
         toast.success(`Accounted for ${formatGoalTime(splitTotalMin * 60)}`);
       } else {
         if (!selected) { toast.error("Pick what you were doing"); setSubmitting(false); return; }
+        await removePending();
         await postEntry({
           category: selected,
           start: gapStart,
@@ -127,12 +149,16 @@ export default function ReconcileSheet({ open, awaySeconds, gapStart, gapEnd, on
       <div className="w-full sm:max-w-md bg-[#0A0A0A] border border-[#333] sm:rounded-sm shadow-2xl p-5 space-y-4 animate-in slide-in-from-bottom-2">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="font-mono text-[10px] text-[#71717A] uppercase tracking-widest">Account for your time</p>
+            <p className="font-mono text-[10px] text-[#71717A] uppercase tracking-widest">
+              {isBreakMode ? "Account for your break" : "Account for your time"}
+            </p>
             <p className="font-heading text-lg font-bold text-[#EDEDED] mt-0.5">
-              You were away {formatGoalTime(awaySeconds)}
+              {isBreakMode ? "On a break for" : "You were away"} {formatGoalTime(awaySeconds)}
             </p>
             <p className="font-mono text-[10px] text-[#52525B] mt-0.5">
-              {splitMode ? "Set how long each thing took." : "What were you doing? Pick one."}
+              {splitMode
+                ? "Set how long each thing took."
+                : isBreakMode ? "Recharge or drift? Pick one." : "What were you doing? Pick one."}
             </p>
           </div>
           <button onClick={onClose} className="text-[#52525B] hover:text-[#EDEDED] transition-colors shrink-0" title="Dismiss">

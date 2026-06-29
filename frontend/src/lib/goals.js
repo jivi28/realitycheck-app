@@ -1,5 +1,5 @@
 /**
- * Pure helpers for Daily Goals: time attribution, progress, and pacing.
+ * Pure helpers for Goals: time attribution, progress, and pacing.
  *
  * Goals live in localStorage (key `rc_goals`). Because browserApi keeps every
  * entry forever, carry-over progress is just "sum matching entries since the
@@ -136,31 +136,31 @@ export function isSubgoalActive(sub, currentTimer) {
   return !!currentTimer && !currentTimer.is_break && subgoalMatchesEntry(sub, currentTimer);
 }
 
-// Aggregate pacing: count items finished early vs over (done-over or in-progress
-// already past target). Returns { status: 'ahead'|'over'|'onpace', early, over }.
+// Aggregate pacing — a TODAY-only signal that resets at midnight. Only active
+// (not done) DAILY goals form a daily pace: a carry-over goal is a long project,
+// so passing its *total* estimate isn't a daily pacing failure and is excluded.
+// "Over" uses today's time past the goal's (daily) target, so it clears overnight.
+// Returns { status: 'ahead'|'over'|'onpace', early, over, aheadSeconds, overSeconds }.
 export function computePacing(goals, ctx) {
-  let early = 0;
+  let ahead = 0; // active daily goals that have met today's target
   let over = 0;
-  let aheadSeconds = 0; // total time saved on items finished early
-  let overSeconds = 0;  // total time spent past target (done-over + in-progress)
-  const tally = (item, prog) => {
-    if (!prog.target) return;
-    if (item.done) {
-      if (prog.seconds < prog.target - 1) { early += 1; aheadSeconds += prog.target - prog.seconds; }
-      else if (prog.seconds > prog.target + 1) { over += 1; overSeconds += prog.seconds - prog.target; }
-    } else if (prog.over > 0) {
-      over += 1;
-      overSeconds += prog.over;
-    }
+  let overSeconds = 0; // today's time spent past target across active daily goals
+  const tally = (carryOver, prog) => {
+    if (!prog.target || carryOver) return; // carry-over projects aren't a daily pace
+    const today = prog.todaySeconds;
+    if (today > prog.target + 1) { over += 1; overSeconds += today - prog.target; }
+    else if (today >= prog.target) { ahead += 1; }
   };
   for (const goal of goals) {
-    tally(goal, computeGoalProgress(goal, ctx));
+    if (goal.done) continue;
+    tally(goal.carryOver, computeGoalProgress(goal, ctx));
     for (const sub of goal.subgoals || []) {
-      tally(sub, computeSubgoalProgress(goal, sub, ctx));
+      if (sub.done) continue;
+      tally(goal.carryOver, computeSubgoalProgress(goal, sub, ctx));
     }
   }
   let status = "onpace";
-  if (early > over && early > 0) status = "ahead";
-  else if (over > early && over > 0) status = "over";
-  return { status, early, over, aheadSeconds, overSeconds };
+  if (over > 0) status = "over";
+  else if (ahead > 0) status = "ahead";
+  return { status, early: ahead, over, aheadSeconds: 0, overSeconds };
 }

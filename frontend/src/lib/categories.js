@@ -10,12 +10,12 @@ export const CATEGORIES = [
   { id: "health", label: "Health", color: "#FFD600", Icon: Activity,    hint: "exercise, walks, healthy meals" },
   { id: "social", label: "Social", color: "#B388FF", Icon: Users,       hint: "family, friends" },
   { id: "care",   label: "Care",   color: "#FF8C00", Icon: ShoppingBag, hint: "chores, errands, shopping" },
-  { id: "rest",   label: "Rest",   color: "#60A5FA", Icon: Coffee,      hint: "intentional downtime" },
+  { id: "rest",   label: "Recharge", color: "#60A5FA", Icon: Coffee,    hint: "purposeful recharge — you chose it and it restored you (a nap, a walk, real downtime). Doomscrolling / oversleeping is Drift." },
 ];
 
 // Special category for time that wasn't spent on purpose — counts as Drifted,
 // not toward the "on purpose" score. Offered in the reconcile sheet only.
-export const NOT_PURPOSEFUL = { id: "not_purposeful", label: "Not purposeful", color: "#52525B", Icon: CircleSlash, hint: "drifted / wasted time" };
+export const NOT_PURPOSEFUL = { id: "not_purposeful", label: "Drifted", color: "#52525B", Icon: CircleSlash, hint: "drifted / wasted time" };
 
 const DEFAULT_CATEGORY = "focus";
 

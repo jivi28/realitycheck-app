@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { Heart, MinusCircle, Moon, MoonStar, Coffee } from "lucide-react";
+import { Heart, MinusCircle, Moon, MoonStar } from "lucide-react";
 import { CATEGORIES, projectCategory } from "@/lib/categories";
 
 const AWAKE_HOURS = 16;
-const BREAK_COLOR = "#2DD4BF";
 
 // Resolve an entry's category: an explicit (reconciled) category wins, else fall
 // back to its project's category.
@@ -108,7 +107,7 @@ export default function StatsBar({ dailyData, currentTimer, projects = [], onRec
       </div>
 
       {/* stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
         <div className="bg-[#0A0A0A] border border-[#333] p-3 md:p-4" data-testid="stat-productive">
           <div className="flex items-center gap-2 mb-1.5 md:mb-2">
             <Heart className="w-3 h-3 md:w-3.5 md:h-3.5 text-[#00FF41]" />
@@ -116,15 +115,6 @@ export default function StatsBar({ dailyData, currentTimer, projects = [], onRec
           </div>
           <p className="font-heading text-xl md:text-2xl font-bold text-[#00FF41]">{formatHours(onPurpose)}</p>
           <p className="font-mono text-[9px] text-[#52525B] mt-1">tracked, on purpose</p>
-        </div>
-
-        <div className="bg-[#0A0A0A] border border-[#333] p-3 md:p-4" data-testid="stat-paused">
-          <div className="flex items-center gap-2 mb-1.5 md:mb-2">
-            <Coffee className="w-3 h-3 md:w-3.5 md:h-3.5" style={{ color: BREAK_COLOR }} />
-            <span className="font-mono text-[9px] md:text-[10px] text-[#71717A] uppercase tracking-widest">Break</span>
-          </div>
-          <p className="font-heading text-xl md:text-2xl font-bold" style={{ color: BREAK_COLOR }}>{formatHours(paused)}</p>
-          <p className="font-mono text-[9px] text-[#52525B] mt-1">intentional rest</p>
         </div>
 
         <div className="bg-[#0A0A0A] border border-[#333] p-3 md:p-4" data-testid="stat-break">

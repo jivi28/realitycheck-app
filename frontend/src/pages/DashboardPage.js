@@ -32,6 +32,9 @@ export default function DashboardPage({ user }) {
   const [editingGoal, setEditingGoal] = useState(null);
   const [expandedGoals, setExpandedGoals] = useState(() => new Set());
   const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
+  // When a break ends, resolve what it was: { gapStart, gapEnd, seconds, driftId }
+  const [breakResolve, setBreakResolve] = useState(null);
 
   const timerInputRef = useRef(null);
   const today = new Date().toISOString().split("T")[0];
@@ -129,16 +132,42 @@ export default function DashboardPage({ user }) {
     }
   };
 
-  // End the break; if it knows the prior task, resume it, else just go idle.
+  // End the break and account for it. The break counts as Drift by default
+  // (logged immediately on resume), so walking away never launders the time;
+  // the resolve sheet then lets you reclaim it as Recharge — or split a mix.
   const handleTimerResume = async () => {
-    const resumeDesc = currentTimer?.resume_description || null;
-    const resumeProject = currentTimer?.resume_project_id || null;
+    const t = currentTimer;
+    const resumeDesc = t?.resume_description || null;
+    const resumeProject = t?.resume_project_id || null;
+    const pauseId = t?.entry_id || null;
+    const gapStart = t?.start_time || null;
     try {
       await handleTimerStop();
+      const gapEnd = new Date().toISOString();
+      const seconds = gapStart ? Math.floor((Date.parse(gapEnd) - Date.parse(gapStart)) / 1000) : 0;
+
+      // Replace the transient pause entry with a real Drift entry — the honest
+      // default. Resolving the break later deletes this and writes the real time.
+      let driftId = null;
+      if (pauseId && seconds >= 1) {
+        await fetch(`${API}/entries/${pauseId}`, { method: "DELETE", credentials: "include" });
+        const res = await fetch(`${API}/entries`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ description: "Drifted", is_break: true, start_time: gapStart, end_time: gapEnd }),
+        });
+        if (res.ok) { const created = await res.json(); driftId = created.entry_id; }
+      }
+
       if (resumeDesc) {
         await handleTimerStart(resumeDesc, resumeProject);
         toast.success(`Back to: ${resumeDesc}`);
       }
+      await fetchAll();
+
+      // Only bother resolving a non-trivial break.
+      if (seconds >= 30 && gapStart) setBreakResolve({ gapStart, gapEnd, seconds, driftId });
     } catch (err) {
       toast.error(err.message || "Failed to resume");
     }
@@ -392,15 +421,40 @@ export default function DashboardPage({ user }) {
 
   // Aggregate pacing across goals + subgoals, with the over/ahead amount
   const pacing = computePacing(goals, goalCtx);
-  const pacingAmount =
-    pacing.status === "over" ? `+${formatGoalTime(pacing.overSeconds)}`
-    : pacing.status === "ahead" ? `−${formatGoalTime(pacing.aheadSeconds)}`
-    : "";
+  const pacingAmount = pacing.status === "over" ? `+${formatGoalTime(pacing.overSeconds)}` : "";
   const pacingMeta = {
     ahead: { text: "⚡ Ahead of pace", color: "#00FF41" },
     over: { text: "⏳ Running over", color: "#FF8C00" },
     onpace: { text: "On pace", color: "#71717A" },
   }[pacing.status];
+
+  // Active goals stay in the main list; finished ones collapse into "Completed".
+  const openGoals = goals.filter((g) => !g.done);
+  const completedGoals = goals
+    .filter((g) => g.done)
+    .sort((a, b) => (b.doneAt || "").localeCompare(a.doneAt || ""));
+  const renderGoalCard = (goal) => (
+    <GoalCard
+      key={goal.id}
+      goal={goal}
+      projects={projects}
+      ctx={goalCtx}
+      expanded={expandedGoals.has(goal.id)}
+      onToggleExpand={toggleExpand}
+      onStartGoal={handleStartForGoal}
+      onStartSubgoal={startForSubgoal}
+      onMarkGoalDone={markGoalDone}
+      onMarkSubgoalDone={markSubgoalDone}
+      onSetGoalTarget={setGoalTarget}
+      onSetSubgoalTarget={setSubgoalTarget}
+      onAddSubgoal={addSubgoal}
+      onDeleteSubgoal={deleteSubgoal}
+      onEditGoal={(g) => setEditingGoal({ ...g })}
+      onDeleteGoal={(id) => saveGoals(goals.filter((g) => g.id !== id))}
+      onSetGoalProject={setGoalProject}
+      onToggleCarryOver={toggleCarryOver}
+    />
+  );
 
   return (
     <AppShell user={user} activePage="dashboard">
@@ -430,11 +484,11 @@ export default function DashboardPage({ user }) {
           suggestions={goalSuggestions}
         />
 
-        {/* Daily Goals */}
+        {/* Goals */}
         <div className="bg-[#0A0A0A] border border-[#333] p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-3 min-w-0">
-              <span className="font-mono text-[10px] text-[#71717A] uppercase tracking-widest">Daily Goals</span>
+              <span className="font-mono text-[10px] text-[#71717A] uppercase tracking-widest">Goals</span>
               {(pacing.early > 0 || pacing.over > 0) && (
                 <span
                   data-testid="pacing-badge"
@@ -469,7 +523,7 @@ export default function DashboardPage({ user }) {
             <p className="font-mono text-[11px] text-[#71717A]">No goals set. Add targets to track your progress.</p>
           )}
 
-          {goals.map((goal) => {
+          {openGoals.map((goal) => {
             if (editingGoal?.id === goal.id) {
               return (
                 <div key={goal.id} className="space-y-2 p-2 -mx-2 border border-[#222]">
@@ -532,29 +586,25 @@ export default function DashboardPage({ user }) {
                 </div>
               );
             }
-            return (
-              <GoalCard
-                key={goal.id}
-                goal={goal}
-                projects={projects}
-                ctx={goalCtx}
-                expanded={expandedGoals.has(goal.id)}
-                onToggleExpand={toggleExpand}
-                onStartGoal={handleStartForGoal}
-                onStartSubgoal={startForSubgoal}
-                onMarkGoalDone={markGoalDone}
-                onMarkSubgoalDone={markSubgoalDone}
-                onSetGoalTarget={setGoalTarget}
-                onSetSubgoalTarget={setSubgoalTarget}
-                onAddSubgoal={addSubgoal}
-                onDeleteSubgoal={deleteSubgoal}
-                onEditGoal={(g) => setEditingGoal({ ...g })}
-                onDeleteGoal={(id) => saveGoals(goals.filter((g) => g.id !== id))}
-                onSetGoalProject={setGoalProject}
-                onToggleCarryOver={toggleCarryOver}
-              />
-            );
+            return renderGoalCard(goal);
           })}
+
+          {completedGoals.length > 0 && (
+            <div className="pt-2 border-t border-[#1A1A1A]">
+              <button
+                onClick={() => setShowCompleted((v) => !v)}
+                data-testid="toggle-completed"
+                className="font-mono text-[10px] text-[#71717A] hover:text-[#EDEDED] uppercase tracking-wider transition-colors"
+              >
+                {showCompleted ? "▾" : "▸"} Completed ({completedGoals.length})
+              </button>
+              {showCompleted && (
+                <div className="space-y-3 mt-2">
+                  {completedGoals.map(renderGoalCard)}
+                </div>
+              )}
+            </div>
+          )}
 
           {showGoalForm && (
             <div className="space-y-2 pt-2 border-t border-[#1A1A1A]">
@@ -685,6 +735,18 @@ export default function DashboardPage({ user }) {
         gapStart={reconcileWindow.gapStart}
         gapEnd={reconcileWindow.gapEnd}
         onClose={() => setReconcileOpen(false)}
+        onLogged={fetchAll}
+      />
+
+      {/* Resolve a just-ended break: Recharge (on purpose) or Drift, or split. */}
+      <ReconcileSheet
+        open={!!breakResolve}
+        mode="break"
+        replaceEntryId={breakResolve?.driftId}
+        awaySeconds={breakResolve?.seconds || 0}
+        gapStart={breakResolve?.gapStart}
+        gapEnd={breakResolve?.gapEnd}
+        onClose={() => setBreakResolve(null)}
         onLogged={fetchAll}
       />
     </AppShell>
