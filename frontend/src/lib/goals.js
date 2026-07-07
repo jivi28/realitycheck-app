@@ -10,24 +10,6 @@ import { syncGoals } from "./cloudSync";
 import { localDayStr, localStartOfWeekStr } from "./dates";
 
 export const GOALS_KEY = "rc_goals";
-export const DEFAULT_GOAL_TYPE = "focus";
-export const TASK_TYPES = [
-  { id: "focus", label: "Focus", color: "#00FF41" },
-  { id: "admin", label: "Admin", color: "#60A5FA" },
-  { id: "learning", label: "Learning", color: "#A78BFA" },
-  { id: "health", label: "Health", color: "#2DD4BF" },
-  { id: "life", label: "Life", color: "#FBBF24" },
-  { id: "errand", label: "Errand", color: "#F97316" },
-  { id: "other", label: "Other", color: "#A1A1AA" },
-];
-
-export function normalizeGoalType(type) {
-  return TASK_TYPES.some((t) => t.id === type) ? type : DEFAULT_GOAL_TYPE;
-}
-
-export function taskTypeMeta(type) {
-  return TASK_TYPES.find((t) => t.id === normalizeGoalType(type)) || TASK_TYPES[0];
-}
 
 // Fired whenever goals in localStorage were replaced from the cloud (another
 // device / a friend edited them); pages re-read on this signal.
@@ -116,7 +98,6 @@ export function completedByDay(goals) {
 export function normalizeGoal(goal) {
   return {
     subgoals: [],
-    type: DEFAULT_GOAL_TYPE,
     aliases: [],
     upNext: false,
     carryOver: true,
@@ -127,10 +108,8 @@ export function normalizeGoal(goal) {
     startDate: todayStr(),
     startAt: null,
     ...goal,
-    type: normalizeGoalType(goal.type),
     aliases: Array.isArray(goal.aliases) ? goal.aliases : [],
     subgoals: (goal.subgoals || []).map((s) => ({
-      type: DEFAULT_GOAL_TYPE,
       aliases: [],
       upNext: false,
       done: false,
@@ -139,7 +118,6 @@ export function normalizeGoal(goal) {
       addedSeconds: 0,
       startAt: null,
       ...s,
-      type: normalizeGoalType(s.type),
       aliases: Array.isArray(s.aliases) ? s.aliases : [],
     })),
   };

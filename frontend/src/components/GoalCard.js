@@ -7,9 +7,6 @@ import {
   isSubgoalActive,
   formatGoalTime,
   formatDoneStamp,
-  TASK_TYPES,
-  DEFAULT_GOAL_TYPE,
-  taskTypeMeta,
 } from "@/lib/goals";
 import { projectIconComp } from "@/lib/projectIcons";
 
@@ -57,34 +54,6 @@ function statusTag(prog, done) {
   return null;
 }
 
-function TypeChip({ type, compact = false }) {
-  const meta = taskTypeMeta(type);
-  return (
-    <span
-      title={`Type: ${meta.label}`}
-      className={`font-mono uppercase tracking-wider border shrink-0 ${compact ? "text-[8px] px-1 py-px" : "text-[9px] px-1.5 py-0.5"}`}
-      style={{ color: meta.color, borderColor: `${meta.color}66`, backgroundColor: `${meta.color}12` }}
-    >
-      {meta.label}
-    </span>
-  );
-}
-
-function TypeSelect({ value, onChange, className = "" }) {
-  return (
-    <select
-      value={value || DEFAULT_GOAL_TYPE}
-      onChange={(e) => onChange(e.target.value)}
-      title="Task type"
-      className={`bg-[#0A0A0A] border border-[#333] font-mono text-xs text-[#A1A1AA] px-2 py-1 outline-none ${className}`}
-    >
-      {TASK_TYPES.map((t) => (
-        <option key={t.id} value={t.id}>{t.label}</option>
-      ))}
-    </select>
-  );
-}
-
 // A clear, labeled done/not-done button (replaces the bare tick).
 function DoneButton({ done, reached, onClick, size = "sm", testid }) {
   const pad = size === "xs" ? "px-1.5 py-0.5 text-[8px]" : "px-2 py-0.5 text-[9px]";
@@ -127,8 +96,6 @@ export default function GoalCard({
   onEditSubgoal,
   onDeleteGoal,
   onSetGoalProject,
-  onSetGoalType,
-  onSetSubgoalType,
   onToggleCarryOver,
   onToggleGoalUpNext,
   onToggleSubgoalUpNext,
@@ -138,7 +105,6 @@ export default function GoalCard({
   const [targetSub, setTargetSub] = useState(null); // subgoal id being retargeted
   const [subLabel, setSubLabel] = useState("");
   const [subHours, setSubHours] = useState("");
-  const [subType, setSubType] = useState(DEFAULT_GOAL_TYPE);
   const [editingSub, setEditingSub] = useState(null);
   const [confirmDel, setConfirmDel] = useState(false);
 
@@ -159,8 +125,8 @@ export default function GoalCard({
   const addSubgoal = () => {
     const hrs = parseFloat(subHours);
     if (!subLabel.trim() || !hrs || hrs <= 0) return;
-    onAddSubgoal(goal.id, subLabel.trim(), hrs, subType);
-    setSubLabel(""); setSubHours(""); setSubType(DEFAULT_GOAL_TYPE);
+    onAddSubgoal(goal.id, subLabel.trim(), hrs);
+    setSubLabel(""); setSubHours("");
   };
 
   const saveSubEdit = () => {
@@ -169,7 +135,6 @@ export default function GoalCard({
     onEditSubgoal(goal.id, editingSub.id, {
       label: editingSub.label.trim(),
       targetHours: hrs,
-      type: editingSub.type || DEFAULT_GOAL_TYPE,
     });
     setEditingSub(null);
   };
@@ -226,7 +191,6 @@ export default function GoalCard({
           <span className={`font-mono text-xs truncate ${goal.done ? "text-[#00FF41] line-through" : active ? "text-[#EDEDED]" : "text-[#A1A1AA]"}`}>
             {goal.label}
           </span>
-          <TypeChip type={goal.type} />
           {goal.subgoals.length > 0 && (
             <span className="font-mono text-[9px] text-[#52525B] shrink-0">
               {goal.subgoals.filter((s) => s.done).length}/{goal.subgoals.length}
@@ -303,10 +267,6 @@ export default function GoalCard({
                 <Star className={`w-3 h-3 ${goal.upNext ? "fill-current" : ""}`} />
               </button>
             )}
-
-            <div className="hidden md:block">
-              <TypeSelect value={goal.type} onChange={(type) => onSetGoalType(goal.id, type)} className="text-[10px] px-1.5 py-0.5" />
-            </div>
 
             <button
               onClick={() => onToggleCarryOver(goal.id)}
@@ -394,7 +354,6 @@ export default function GoalCard({
                       step="0.25"
                       className="w-16 bg-transparent border-b border-[#333] focus:border-[#00FF41] py-1 font-mono text-[11px] text-[#EDEDED] outline-none transition-colors"
                     />
-                    <TypeSelect value={editingSub.type} onChange={(type) => setEditingSub({ ...editingSub, type })} className="text-[11px]" />
                     <button
                       onClick={saveSubEdit}
                       className="bg-[#00FF41] text-black font-mono text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 hover:bg-[#00CC33] transition-colors"
@@ -423,7 +382,6 @@ export default function GoalCard({
                     <span className={`font-mono text-[11px] truncate ${sub.done ? "text-[#00FF41] line-through" : sActive ? "text-[#EDEDED]" : "text-[#A1A1AA]"}`}>
                       {sub.label}
                     </span>
-                    <TypeChip type={sub.type} compact />
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {sTag && <span className="font-mono text-[8px] uppercase tracking-wider" style={{ color: sTag.color }}>{sTag.text}</span>}
@@ -451,9 +409,6 @@ export default function GoalCard({
                           <Star className={`w-2.5 h-2.5 ${sub.upNext ? "fill-current" : ""}`} />
                         </button>
                       )}
-                      <div className="hidden md:block">
-                        <TypeSelect value={sub.type} onChange={(type) => onSetSubgoalType(goal.id, sub.id, type)} className="text-[10px] px-1 py-0.5" />
-                      </div>
                       {targetSub === sub.id ? (
                         <TargetInline current={sub.targetHours} testid={`target-input-${sub.id}`} onSave={(h) => onSetSubgoalTarget(goal.id, sub.id, h)} onClose={() => setTargetSub(null)} />
                       ) : (
@@ -462,7 +417,7 @@ export default function GoalCard({
                         </button>
                       )}
                       <button
-                        onClick={() => setEditingSub({ ...sub, targetHours: String(sub.targetHours), type: sub.type || DEFAULT_GOAL_TYPE })}
+                        onClick={() => setEditingSub({ ...sub, targetHours: String(sub.targetHours) })}
                         className="text-[#52525B] hover:text-[#A1A1AA] transition-colors"
                         title="Edit subtask"
                       >
@@ -501,7 +456,6 @@ export default function GoalCard({
               onKeyDown={(e) => e.key === "Enter" && addSubgoal()}
               className="w-12 bg-transparent border-b border-[#222] focus:border-[#00FF41] py-1 font-mono text-[11px] text-[#EDEDED] placeholder:text-[#3f3f46] outline-none transition-colors"
             />
-            <TypeSelect value={subType} onChange={setSubType} className="hidden sm:block text-[11px] py-1" />
             <button
               onClick={addSubgoal}
               data-testid={`add-subgoal-btn-${goal.id}`}

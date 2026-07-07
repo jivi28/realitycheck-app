@@ -11,7 +11,7 @@ import ProjectChip from "@/components/ProjectChip";
 import LogPastTimeForm from "@/components/LogPastTimeForm";
 import GoalCard from "@/components/GoalCard";
 import ReconcileSheet from "@/components/ReconcileSheet";
-import { readGoals, persistGoals as writeGoals, GOALS_REFRESH_EVENT, normalizeGoal, computePacing, computeGoalProgress, computeSubgoalProgress, isGoalActive, todayStr, formatGoalTime, completedSummary, TASK_TYPES, DEFAULT_GOAL_TYPE, taskTypeMeta } from "@/lib/goals";
+import { readGoals, persistGoals as writeGoals, GOALS_REFRESH_EVENT, normalizeGoal, computePacing, computeGoalProgress, computeSubgoalProgress, isGoalActive, todayStr, formatGoalTime, completedSummary } from "@/lib/goals";
 import { computeStreak } from "@/lib/streak";
 import { localDayStr } from "@/lib/dates";
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors } from "@dnd-kit/core";
@@ -37,33 +37,6 @@ function SortableGoalCard({ id, children }) {
   );
 }
 
-function TypeBadge({ type }) {
-  const meta = taskTypeMeta(type);
-  return (
-    <span
-      className="font-mono text-[9px] uppercase tracking-wider border px-1.5 py-0.5 shrink-0"
-      style={{ color: meta.color, borderColor: `${meta.color}66`, backgroundColor: `${meta.color}12` }}
-    >
-      {meta.label}
-    </span>
-  );
-}
-
-function TypeSelect({ value, onChange, className = "" }) {
-  return (
-    <select
-      value={value || DEFAULT_GOAL_TYPE}
-      onChange={(e) => onChange(e.target.value)}
-      title="Task type"
-      className={`bg-[#0A0A0A] border border-[#333] font-mono text-xs text-[#A1A1AA] px-2 py-1 outline-none ${className}`}
-    >
-      {TASK_TYPES.map((t) => (
-        <option key={t.id} value={t.id}>{t.label}</option>
-      ))}
-    </select>
-  );
-}
-
 export default function DashboardPage({ user }) {
   const [currentTimer, setCurrentTimer] = useState(null);
   const [dailyData, setDailyData] = useState(null);
@@ -78,7 +51,6 @@ export default function DashboardPage({ user }) {
   const [newGoalHours, setNewGoalHours] = useState("");
   const [newGoalProjectId, setNewGoalProjectId] = useState("");
   const [newGoalCarryOver, setNewGoalCarryOver] = useState(true);
-  const [newGoalType, setNewGoalType] = useState(DEFAULT_GOAL_TYPE);
   const [editingGoal, setEditingGoal] = useState(null);
   const [expandedGoals, setExpandedGoals] = useState(() => new Set());
   const [reconcileOpen, setReconcileOpen] = useState(false);
@@ -346,12 +318,11 @@ export default function DashboardPage({ user }) {
         targetHours: hrs,
         projectId: newGoalProjectId || null,
         carryOver: newGoalCarryOver,
-        type: newGoalType,
         startDate: todayStr(),
         startAt: new Date().toISOString(),
       }),
     ]);
-    setNewGoalLabel(""); setNewGoalHours(""); setNewGoalProjectId(""); setNewGoalCarryOver(true); setNewGoalType(DEFAULT_GOAL_TYPE); setShowGoalForm(false);
+    setNewGoalLabel(""); setNewGoalHours(""); setNewGoalProjectId(""); setNewGoalCarryOver(true); setShowGoalForm(false);
   };
 
   // Start timer for a specific goal / subgoal (stops current timer first if running)
@@ -384,7 +355,6 @@ export default function DashboardPage({ user }) {
       ...editingGoal,
       label: editingGoal.label.trim(),
       targetHours,
-      type: editingGoal.type || DEFAULT_GOAL_TYPE,
       aliases: aliasesForRename(g, editingGoal.label),
     } : g));
     setEditingGoal(null);
@@ -395,10 +365,10 @@ export default function DashboardPage({ user }) {
   const mapSubgoal = (goalId, subId, fn) =>
     mapGoal(goalId, (g) => ({ ...g, subgoals: g.subgoals.map((s) => (s.id === subId ? fn(s) : s)) }));
 
-  const addSubgoal = (goalId, label, hours, type = DEFAULT_GOAL_TYPE) =>
+  const addSubgoal = (goalId, label, hours) =>
     mapGoal(goalId, (g) => ({
       ...g,
-      subgoals: [...g.subgoals, { id: `${Date.now()}_${g.subgoals.length}`, label, targetHours: hours, type, aliases: [], upNext: false, done: false, doneAt: null, doneSeconds: null, addedSeconds: 0, startAt: new Date().toISOString() }],
+      subgoals: [...g.subgoals, { id: `${Date.now()}_${g.subgoals.length}`, label, targetHours: hours, aliases: [], upNext: false, done: false, doneAt: null, doneSeconds: null, addedSeconds: 0, startAt: new Date().toISOString() }],
     }));
   const deleteSubgoal = (goalId, subId) =>
     mapGoal(goalId, (g) => ({ ...g, subgoals: g.subgoals.filter((s) => s.id !== subId) }));
@@ -409,7 +379,6 @@ export default function DashboardPage({ user }) {
       ...fields,
       label: fields.label.trim(),
       targetHours: parseFloat(fields.targetHours),
-      type: fields.type || DEFAULT_GOAL_TYPE,
       aliases: aliasesForRename(s, fields.label),
     }));
 
@@ -431,11 +400,6 @@ export default function DashboardPage({ user }) {
     mapGoal(goalId, (g) => ({ ...g, targetHours: hours }));
   const setSubgoalTarget = (goalId, subId, hours) =>
     mapSubgoal(goalId, subId, (s) => ({ ...s, targetHours: hours }));
-
-  const setGoalType = (goalId, type) =>
-    mapGoal(goalId, (g) => ({ ...g, type }));
-  const setSubgoalType = (goalId, subId, type) =>
-    mapSubgoal(goalId, subId, (s) => ({ ...s, type }));
 
   const toggleGoalUpNext = (goalId) => {
     const selected = goals.find((g) => g.id === goalId);
@@ -594,10 +558,11 @@ export default function DashboardPage({ user }) {
   const completedStats = completedSummary(goals);
   const upNextItem = openGoals.reduce((found, goal) => {
     if (found) return found;
-    if (goal.upNext) return { kind: "goal", goal, label: goal.label, type: goal.type };
+    if (goal.upNext) return { kind: "goal", goal, label: goal.label };
     const sub = (goal.subgoals || []).find((s) => !s.done && s.upNext);
-    return sub ? { kind: "subgoal", goal, sub, label: sub.label, parent: goal.label, type: sub.type } : null;
+    return sub ? { kind: "subgoal", goal, sub, label: sub.label, parent: goal.label } : null;
   }, null);
+  const upNextLabel = currentTimer ? "Up Next" : "Start Next";
   const renderGoalCard = (goal, dragHandle = null, priorityIndex = null) => (
     <GoalCard
       key={goal.id}
@@ -620,8 +585,6 @@ export default function DashboardPage({ user }) {
       onEditGoal={(g) => setEditingGoal({ ...g })}
       onDeleteGoal={deleteGoal}
       onSetGoalProject={setGoalProject}
-      onSetGoalType={setGoalType}
-      onSetSubgoalType={setSubgoalType}
       onToggleCarryOver={toggleCarryOver}
       onToggleGoalUpNext={toggleGoalUpNext}
       onToggleSubgoalUpNext={toggleSubgoalUpNext}
@@ -729,8 +692,7 @@ export default function DashboardPage({ user }) {
             <div className="flex items-center justify-between gap-3 border border-[#FBBF24]/35 bg-[#FBBF24]/5 p-2" data-testid="up-next-row">
               <div className="flex items-center gap-2 min-w-0">
                 <Star className="w-3.5 h-3.5 text-[#FBBF24] fill-current shrink-0" />
-                <span className="font-mono text-[9px] text-[#FBBF24] uppercase tracking-widest shrink-0">Up Next</span>
-                <TypeBadge type={upNextItem.type} />
+                <span className="font-mono text-[9px] text-[#FBBF24] uppercase tracking-widest shrink-0">{upNextLabel}</span>
                 <span className="font-mono text-xs text-[#EDEDED] truncate">{upNextItem.label}</span>
                 {upNextItem.parent && (
                   <span className="font-mono text-[10px] text-[#52525B] truncate">in {upNextItem.parent}</span>
@@ -779,11 +741,6 @@ export default function DashboardPage({ user }) {
                         <option key={p.project_id} value={p.project_id}>{p.name}</option>
                       ))}
                     </select>
-                    <TypeSelect
-                      value={editingGoal.type}
-                      onChange={(type) => setEditingGoal({ ...editingGoal, type })}
-                      className="min-w-[110px]"
-                    />
                     <div className="flex border border-[#222]" title="Until done keeps your time across days; Daily resets each midnight">
                       <button
                         onClick={() => setEditingGoal({ ...editingGoal, carryOver: true })}
@@ -881,11 +838,6 @@ export default function DashboardPage({ user }) {
                     <option key={p.project_id} value={p.project_id}>{p.name}</option>
                   ))}
                 </select>
-                <TypeSelect
-                  value={newGoalType}
-                  onChange={setNewGoalType}
-                  className="w-28 py-1.5"
-                />
                 <button
                   onClick={addGoal}
                   className="flex items-center gap-1 bg-[#00FF41] text-black font-mono text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 hover:bg-[#00CC33] transition-colors"
