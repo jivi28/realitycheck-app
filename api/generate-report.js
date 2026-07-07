@@ -37,10 +37,17 @@ export default async function handler(req, res) {
   }
 
   try {
-    const model = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      {
+    const preferredModels = [
+      process.env.GEMINI_MODEL,
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite",
+    ].filter(Boolean);
+    const models = [...new Set(preferredModels)];
+    let lastErrorStatus = 502;
+    let lastErrorBody = "";
+
+    for (const model of models) {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -58,29 +65,34 @@ export default async function handler(req, res) {
             maxOutputTokens: 4000,
           },
         }),
+      });
+      if (!response.ok) {
+        lastErrorStatus = response.status === 429 ? 429 : 502;
+        lastErrorBody = await response.text().catch(() => "");
+        console.error("generate-report failed:", model, response.status, lastErrorBody.slice(0, 300));
+        if ([429, 500, 502, 503, 504].includes(response.status)) continue;
+        return res.status(lastErrorStatus).json({ detail: "AI generation failed" });
       }
-    );
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      console.error("generate-report failed:", response.status, body.slice(0, 300));
-      return res.status(response.status === 429 ? 429 : 502).json({ detail: "AI generation failed" });
+      const data = await response.json();
+      const text = (data.candidates?.[0]?.content?.parts || [])
+        .map((part) => part.text || "")
+        .join("\n")
+        .trim();
+      const finishReason = data.candidates?.[0]?.finishReason;
+      if (finishReason === "SAFETY" || finishReason === "RECITATION") {
+        return res.status(502).json({ detail: "Model declined the request" });
+      }
+      if (!text) {
+        lastErrorBody = "Empty model response";
+        continue;
+      }
+      return res.status(200).json({
+        content: text,
+        model,
+      });
     }
-    const data = await response.json();
-    const text = (data.candidates?.[0]?.content?.parts || [])
-      .map((part) => part.text || "")
-      .join("\n")
-      .trim();
-    const finishReason = data.candidates?.[0]?.finishReason;
-    if (finishReason === "SAFETY" || finishReason === "RECITATION") {
-      return res.status(502).json({ detail: "Model declined the request" });
-    }
-    if (!text) {
-      return res.status(502).json({ detail: "Empty model response" });
-    }
-    return res.status(200).json({
-      content: text,
-      model,
-    });
+    console.error("generate-report failed: all Gemini models unavailable", lastErrorBody.slice(0, 300));
+    return res.status(lastErrorStatus).json({ detail: "AI generation failed" });
   } catch (err) {
     console.error("generate-report failed:", err?.message);
     return res.status(502).json({ detail: "AI generation failed" });

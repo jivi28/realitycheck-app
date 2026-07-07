@@ -25,8 +25,8 @@ Optional: set `REACT_APP_WORKSPACE` (build-time, per Vercel project) to separate
 
 | Variable | Side | Purpose |
 |---|---|---|
-| `GEMINI_API_KEY` | server | Real AI weekly reports (`api/generate-report.js`, `gemini-3-flash-preview` by default). Without it the report page falls back to the local template, labeled "offline summary". |
-| `GEMINI_MODEL` | server | Optional override for the report model. |
+| `GEMINI_API_KEY` | server | Real AI weekly reports (`api/generate-report.js`, `gemini-2.5-flash` by default, with Flash Lite fallback). Without it the report page falls back to the local template, labeled "offline summary". |
+| `GEMINI_MODEL` | server | Optional first-choice override for the report model before the default fallbacks. |
 | `SUPABASE_URL`, `SUPABASE_KEY` | server | Same values as the `REACT_APP_SUPABASE_*` vars — used by the push cron to read entries/subscriptions. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_CONTACT` | server | Web push signing (see `.env.push.local`, not committed). `VAPID_CONTACT` is a `mailto:` address. |
 | `REACT_APP_VAPID_PUBLIC_KEY` | build | Same public key, exposed to the frontend subscribe flow. |
