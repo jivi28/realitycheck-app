@@ -111,12 +111,14 @@ code {
     linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.34) 70%);
 }
 
-.app-shell-bg > * {
+.app-shell-bg > header,
+.app-shell-bg > main {
   position: relative;
   z-index: 1;
 }
 
 .app-sidebar {
+  z-index: 1;
   border-color: #12301D;
   background:
     linear-gradient(180deg, rgba(4, 8, 6, 0.98), rgba(5, 5, 5, 0.98)),

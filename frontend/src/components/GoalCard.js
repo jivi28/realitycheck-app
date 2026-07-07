@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Play, Pencil, X, Plus, Check, ChevronDown, ChevronRight, Target, RefreshCw, ArrowRight, GripVertical } from "lucide-react";
+import { Play, Pencil, X, Plus, Check, ChevronDown, ChevronRight, Target, RefreshCw, ArrowRight, GripVertical, Star } from "lucide-react";
 import {
   computeGoalProgress,
   computeSubgoalProgress,
@@ -7,6 +7,9 @@ import {
   isSubgoalActive,
   formatGoalTime,
   formatDoneStamp,
+  TASK_TYPES,
+  DEFAULT_GOAL_TYPE,
+  taskTypeMeta,
 } from "@/lib/goals";
 import { projectIconComp } from "@/lib/projectIcons";
 
@@ -54,6 +57,34 @@ function statusTag(prog, done) {
   return null;
 }
 
+function TypeChip({ type, compact = false }) {
+  const meta = taskTypeMeta(type);
+  return (
+    <span
+      title={`Type: ${meta.label}`}
+      className={`font-mono uppercase tracking-wider border shrink-0 ${compact ? "text-[8px] px-1 py-px" : "text-[9px] px-1.5 py-0.5"}`}
+      style={{ color: meta.color, borderColor: `${meta.color}66`, backgroundColor: `${meta.color}12` }}
+    >
+      {meta.label}
+    </span>
+  );
+}
+
+function TypeSelect({ value, onChange, className = "" }) {
+  return (
+    <select
+      value={value || DEFAULT_GOAL_TYPE}
+      onChange={(e) => onChange(e.target.value)}
+      title="Task type"
+      className={`bg-[#0A0A0A] border border-[#333] font-mono text-xs text-[#A1A1AA] px-2 py-1 outline-none ${className}`}
+    >
+      {TASK_TYPES.map((t) => (
+        <option key={t.id} value={t.id}>{t.label}</option>
+      ))}
+    </select>
+  );
+}
+
 // A clear, labeled done/not-done button (replaces the bare tick).
 function DoneButton({ done, reached, onClick, size = "sm", testid }) {
   const pad = size === "xs" ? "px-1.5 py-0.5 text-[8px]" : "px-2 py-0.5 text-[9px]";
@@ -78,6 +109,7 @@ function DoneButton({ done, reached, onClick, size = "sm", testid }) {
 
 export default function GoalCard({
   goal,
+  priorityIndex = null,
   projects,
   ctx,
   dragHandle = null,
@@ -92,15 +124,22 @@ export default function GoalCard({
   onAddSubgoal,
   onDeleteSubgoal,
   onEditGoal,
+  onEditSubgoal,
   onDeleteGoal,
   onSetGoalProject,
+  onSetGoalType,
+  onSetSubgoalType,
   onToggleCarryOver,
+  onToggleGoalUpNext,
+  onToggleSubgoalUpNext,
 }) {
   const [projMenu, setProjMenu] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
   const [targetSub, setTargetSub] = useState(null); // subgoal id being retargeted
   const [subLabel, setSubLabel] = useState("");
   const [subHours, setSubHours] = useState("");
+  const [subType, setSubType] = useState(DEFAULT_GOAL_TYPE);
+  const [editingSub, setEditingSub] = useState(null);
   const [confirmDel, setConfirmDel] = useState(false);
 
   const prog = computeGoalProgress(goal, ctx);
@@ -120,8 +159,19 @@ export default function GoalCard({
   const addSubgoal = () => {
     const hrs = parseFloat(subHours);
     if (!subLabel.trim() || !hrs || hrs <= 0) return;
-    onAddSubgoal(goal.id, subLabel.trim(), hrs);
-    setSubLabel(""); setSubHours("");
+    onAddSubgoal(goal.id, subLabel.trim(), hrs, subType);
+    setSubLabel(""); setSubHours(""); setSubType(DEFAULT_GOAL_TYPE);
+  };
+
+  const saveSubEdit = () => {
+    const hrs = parseFloat(editingSub?.targetHours);
+    if (!editingSub || !editingSub.label.trim() || !hrs || hrs <= 0) return;
+    onEditSubgoal(goal.id, editingSub.id, {
+      label: editingSub.label.trim(),
+      targetHours: hrs,
+      type: editingSub.type || DEFAULT_GOAL_TYPE,
+    });
+    setEditingSub(null);
   };
 
   return (
@@ -142,10 +192,15 @@ export default function GoalCard({
               data-testid={`goal-drag-${goal.id}`}
               title="Drag to reorder"
               aria-label="Drag to reorder goal"
-              className="shrink-0 touch-none cursor-grab active:cursor-grabbing text-[#3f3f46] hover:text-[#A1A1AA] transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              className="shrink-0 touch-none cursor-grab active:cursor-grabbing text-[#52525B] hover:text-[#A1A1AA] transition-colors"
             >
               <GripVertical className="w-3.5 h-3.5" />
             </button>
+          )}
+          {priorityIndex != null && !goal.done && (
+            <span title="Priority rank: top goals should finish earlier" className="font-mono text-[9px] text-[#00FF41] border border-[#00FF41]/35 bg-[#00FF41]/10 px-1.5 py-0.5 shrink-0">
+              P{priorityIndex + 1}
+            </span>
           )}
           <button
             onClick={() => onToggleExpand(goal.id)}
@@ -159,6 +214,9 @@ export default function GoalCard({
             <span className="font-mono text-[9px] text-[#00FF41] uppercase tracking-widest shrink-0 animate-pulse">● live</span>
           )}
           {!active && goal.done && <span className="text-[#00FF41] text-xs shrink-0">✓</span>}
+          {goal.upNext && !goal.done && (
+            <span className="font-mono text-[9px] text-[#FBBF24] uppercase tracking-widest shrink-0">Up Next</span>
+          )}
           {linkedProject && (() => {
             const PIcon = projectIconComp(linkedProject.icon);
             return PIcon
@@ -168,6 +226,7 @@ export default function GoalCard({
           <span className={`font-mono text-xs truncate ${goal.done ? "text-[#00FF41] line-through" : active ? "text-[#EDEDED]" : "text-[#A1A1AA]"}`}>
             {goal.label}
           </span>
+          <TypeChip type={goal.type} />
           {goal.subgoals.length > 0 && (
             <span className="font-mono text-[9px] text-[#52525B] shrink-0">
               {goal.subgoals.filter((s) => s.done).length}/{goal.subgoals.length}
@@ -234,6 +293,21 @@ export default function GoalCard({
             </div>
 
             {/* cadence toggle */}
+            {!goal.done && (
+              <button
+                onClick={() => onToggleGoalUpNext(goal.id)}
+                data-testid={`up-next-goal-${goal.id}`}
+                title={goal.upNext ? "Remove from Up Next" : "Mark as Up Next"}
+                className={`transition-colors ${goal.upNext ? "text-[#FBBF24]" : "text-[#52525B] hover:text-[#FBBF24]"}`}
+              >
+                <Star className={`w-3 h-3 ${goal.upNext ? "fill-current" : ""}`} />
+              </button>
+            )}
+
+            <div className="hidden md:block">
+              <TypeSelect value={goal.type} onChange={(type) => onSetGoalType(goal.id, type)} className="text-[10px] px-1.5 py-0.5" />
+            </div>
+
             <button
               onClick={() => onToggleCarryOver(goal.id)}
               data-testid={`carryover-toggle-${goal.id}`}
@@ -297,16 +371,59 @@ export default function GoalCard({
             const sTag = statusTag(sp, sub.done);
             const sHasEntries = sp.seconds > 0;
             const sWork = sHasEntries ? "Continue" : "Work";
-            const subForce = targetSub === sub.id;
+            const subForce = targetSub === sub.id || editingSub?.id === sub.id;
+            if (editingSub?.id === sub.id) {
+              return (
+                <div key={sub.id} className="space-y-2 border border-[#222] p-2" data-testid={`subgoal-${sub.id}`}>
+                  <input
+                    type="text"
+                    value={editingSub.label}
+                    onChange={(e) => setEditingSub({ ...editingSub, label: e.target.value })}
+                    autoFocus
+                    onKeyDown={(e) => { if (e.key === "Enter") saveSubEdit(); if (e.key === "Escape") setEditingSub(null); }}
+                    className="w-full bg-transparent border-b border-[#333] focus:border-[#00FF41] py-1 font-mono text-[11px] text-[#EDEDED] outline-none transition-colors"
+                  />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <input
+                      type="number"
+                      value={editingSub.targetHours}
+                      onChange={(e) => setEditingSub({ ...editingSub, targetHours: e.target.value })}
+                      onKeyDown={(e) => { if (e.key === "Enter") saveSubEdit(); if (e.key === "Escape") setEditingSub(null); }}
+                      min="0.25"
+                      max="24"
+                      step="0.25"
+                      className="w-16 bg-transparent border-b border-[#333] focus:border-[#00FF41] py-1 font-mono text-[11px] text-[#EDEDED] outline-none transition-colors"
+                    />
+                    <TypeSelect value={editingSub.type} onChange={(type) => setEditingSub({ ...editingSub, type })} className="text-[11px]" />
+                    <button
+                      onClick={saveSubEdit}
+                      className="bg-[#00FF41] text-black font-mono text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 hover:bg-[#00CC33] transition-colors"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setEditingSub(null)}
+                      className="font-mono text-[9px] text-[#A1A1AA] hover:text-[#EDEDED] uppercase tracking-wider px-2 py-1 border border-[#333] transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              );
+            }
             return (
               <div key={sub.id} className="space-y-1 group/sub" data-testid={`subgoal-${sub.id}`}>
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
                     {sActive && <span className="font-mono text-[8px] text-[#00FF41] uppercase tracking-widest shrink-0 animate-pulse">●</span>}
                     {!sActive && sub.done && <span className="text-[#00FF41] text-[10px] shrink-0">✓</span>}
+                    {sub.upNext && !sub.done && (
+                      <span className="font-mono text-[8px] text-[#FBBF24] uppercase tracking-widest shrink-0">Next</span>
+                    )}
                     <span className={`font-mono text-[11px] truncate ${sub.done ? "text-[#00FF41] line-through" : sActive ? "text-[#EDEDED]" : "text-[#A1A1AA]"}`}>
                       {sub.label}
                     </span>
+                    <TypeChip type={sub.type} compact />
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {sTag && <span className="font-mono text-[8px] uppercase tracking-wider" style={{ color: sTag.color }}>{sTag.text}</span>}
@@ -324,6 +441,19 @@ export default function GoalCard({
                     )}
                     <DoneButton done={sub.done} reached={sp.reached} onClick={() => onMarkSubgoalDone(goal.id, sub.id)} size="xs" />
                     <div className={`flex items-center gap-1.5 transition-opacity ${subForce ? "opacity-100" : "opacity-0 group-hover/sub:opacity-100 focus-within:opacity-100"}`}>
+                      {!sub.done && (
+                        <button
+                          onClick={() => onToggleSubgoalUpNext(goal.id, sub.id)}
+                          data-testid={`up-next-subgoal-${sub.id}`}
+                          title={sub.upNext ? "Remove from Up Next" : "Mark as Up Next"}
+                          className={`transition-colors ${sub.upNext ? "text-[#FBBF24]" : "text-[#52525B] hover:text-[#FBBF24]"}`}
+                        >
+                          <Star className={`w-2.5 h-2.5 ${sub.upNext ? "fill-current" : ""}`} />
+                        </button>
+                      )}
+                      <div className="hidden md:block">
+                        <TypeSelect value={sub.type} onChange={(type) => onSetSubgoalType(goal.id, sub.id, type)} className="text-[10px] px-1 py-0.5" />
+                      </div>
                       {targetSub === sub.id ? (
                         <TargetInline current={sub.targetHours} testid={`target-input-${sub.id}`} onSave={(h) => onSetSubgoalTarget(goal.id, sub.id, h)} onClose={() => setTargetSub(null)} />
                       ) : (
@@ -331,6 +461,13 @@ export default function GoalCard({
                           <Target className="w-2.5 h-2.5" />
                         </button>
                       )}
+                      <button
+                        onClick={() => setEditingSub({ ...sub, targetHours: String(sub.targetHours), type: sub.type || DEFAULT_GOAL_TYPE })}
+                        className="text-[#52525B] hover:text-[#A1A1AA] transition-colors"
+                        title="Edit subtask"
+                      >
+                        <Pencil className="w-2.5 h-2.5" />
+                      </button>
                       <button onClick={() => onDeleteSubgoal(goal.id, sub.id)} className="text-[#52525B] hover:text-[#FF003C] transition-colors" title="Delete subtask">
                         <X className="w-2.5 h-2.5" />
                       </button>
@@ -364,6 +501,7 @@ export default function GoalCard({
               onKeyDown={(e) => e.key === "Enter" && addSubgoal()}
               className="w-12 bg-transparent border-b border-[#222] focus:border-[#00FF41] py-1 font-mono text-[11px] text-[#EDEDED] placeholder:text-[#3f3f46] outline-none transition-colors"
             />
+            <TypeSelect value={subType} onChange={setSubType} className="hidden sm:block text-[11px] py-1" />
             <button
               onClick={addSubgoal}
               data-testid={`add-subgoal-btn-${goal.id}`}

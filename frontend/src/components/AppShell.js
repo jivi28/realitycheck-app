@@ -6,7 +6,6 @@ import {
   Brain,
   FolderOpen,
   History,
-  LogOut,
   Monitor,
   Menu,
   X,
@@ -19,7 +18,6 @@ import {
   BellOff,
 } from "lucide-react";
 import { toast } from "sonner";
-import { API } from "@/App";
 import { exportAllData, importAllData } from "@/lib/dataExport";
 import { pushAvailable, isPushEnabled, enablePush, disablePush } from "@/lib/push";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -48,19 +46,6 @@ export default function AppShell({ children, user, activePage }) {
       try { localStorage.setItem(SIDEBAR_KEY, next ? "1" : "0"); } catch { /* ignore */ }
       return next;
     });
-  };
-
-  const handleLogout = async () => {
-    try {
-      await fetch(`${API}/auth/logout`, {
-        method: "POST",
-        credentials: "include",
-      });
-    } catch (err) {
-      // Logout is best-effort — if the network fails we still navigate to /login
-      console.warn("Logout request failed:", err);
-    }
-    navigate("/login");
   };
 
   const handleNav = (path) => {
@@ -147,7 +132,7 @@ export default function AppShell({ children, user, activePage }) {
   );
 
   return (
-    <div className="app-shell-bg min-h-screen bg-[#050505] flex flex-col md:flex-row">
+    <div className="app-shell-bg h-screen bg-[#050505] flex flex-col md:flex-row overflow-hidden">
       {/* Mobile Header */}
       <header className="app-mobile-header md:hidden flex items-center justify-between px-4 py-3 border-b sticky top-0 z-50" data-testid="mobile-header">
         <div className="flex items-center gap-2">
@@ -193,7 +178,7 @@ export default function AppShell({ children, user, activePage }) {
                 {pushButton("mobile")}
                 {dataButtons("mobile")}
               </div>
-              <div className="flex items-center gap-3 px-4 mb-3">
+              <div className="flex items-center gap-3 px-4">
                 <Avatar className="w-8 h-8">
                   <AvatarImage src={user?.picture} />
                   <AvatarFallback className="bg-[#262626] text-[#EDEDED] font-mono text-xs">
@@ -205,14 +190,6 @@ export default function AppShell({ children, user, activePage }) {
                   <p className="font-mono text-[10px] text-[#52525B] truncate">{user?.email || ""}</p>
                 </div>
               </div>
-              <button
-                onClick={handleLogout}
-                data-testid="mobile-logout-btn"
-                className="w-full flex items-center gap-3 px-4 py-3 font-mono text-sm uppercase tracking-wider text-[#52525B] hover:text-[#FF003C]"
-              >
-                <LogOut className="w-4 h-4" />
-                Logout
-              </button>
             </div>
           </nav>
         </div>
@@ -288,20 +265,11 @@ export default function AppShell({ children, user, activePage }) {
           </div>
           {!collapsed && pushButton("sidebar")}
           {!collapsed && dataButtons("sidebar")}
-          <button
-            onClick={handleLogout}
-            data-testid="logout-btn"
-            title={collapsed ? "Logout" : undefined}
-            className={`w-full flex items-center gap-2 py-2 font-mono text-[10px] uppercase tracking-widest text-[#52525B] hover:text-[#FF003C] transition-colors duration-75 ${collapsed ? "justify-center px-0" : "px-3"}`}
-          >
-            <LogOut className="w-3 h-3" />
-            {!collapsed && "Logout"}
-          </button>
         </div>
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 p-4 md:p-6 lg:p-10 overflow-auto min-w-0">
+      <main className="flex-1 p-4 md:p-6 lg:p-10 overflow-y-auto min-w-0 min-h-0">
         {children}
       </main>
 

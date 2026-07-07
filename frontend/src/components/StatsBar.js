@@ -10,9 +10,14 @@ function entryCategory(entry, projectsById) {
   return entry.category || projectCategory(projectsById[entry.project_id]);
 }
 
+function scoreColor(score) {
+  if (score >= 50) return "#00FF41";
+  if (score >= 25) return "#FFD600";
+  return "#FF003C";
+}
+
 export default function StatsBar({ dailyData, currentTimer, projects = [], streak = null, onReconcile }) {
-  // "all" = overall Reality Score; otherwise a category id (focus/health/...).
-  const [filter, setFilter] = useState("all");
+  const [activeBreakdown, setActiveBreakdown] = useState(null);
   const baseProductive = dailyData?.productive_seconds || 0;
   const breakTime = dailyData?.break_seconds || 0;
   const scheduled = dailyData?.scheduled_seconds || 0; // daytime commitments (in the awake day)
@@ -48,6 +53,7 @@ export default function StatsBar({ dailyData, currentTimer, projects = [], strea
     catSeconds[cat] = (catSeconds[cat] || 0) + liveElapsed;
   }
   const breakdown = CATEGORIES.filter((c) => catSeconds[c.id] > 0);
+  const focusMeta = CATEGORIES.find((c) => c.id === "focus");
 
   const formatHours = (seconds) => {
     const h = Math.floor(seconds / 3600);
@@ -60,61 +66,71 @@ export default function StatsBar({ dailyData, currentTimer, projects = [], strea
   };
 
   const isLive = liveElapsed > 0;
+  const liveCategory = currentTimer && liveElapsed > 0 ? entryCategory(currentTimer, projectsById) : null;
+  const focusSeconds = catSeconds.focus || 0;
+  const realityScore = AWAKE_HOURS > 0 ? Math.round((onPurpose / 3600 / AWAKE_HOURS) * 100) : 0;
+  const focusScore = AWAKE_HOURS > 0 ? Math.round((focusSeconds / 3600 / AWAKE_HOURS) * 100) : 0;
+  const realityColor = scoreColor(realityScore);
+  const focusColor = focusMeta?.color || "#00FF41";
 
-  // The headline can show the overall score or a single category, picked via the
-  // dropdown. Denominator is always the 16h awake day, so every category stays on
-  // the same scale and the per-category scores sum toward the overall Reality Score.
-  const filterCat = filter === "all" ? null : CATEGORIES.find((c) => c.id === filter);
-  const displaySeconds = filterCat ? catSeconds[filter] || 0 : onPurpose;
-  const displayScore = AWAKE_HOURS > 0 ? Math.round((displaySeconds / 3600 / AWAKE_HOURS) * 100) : 0;
-  const displayColor = filterCat
-    ? filterCat.color
-    : displayScore >= 50 ? "#00FF41" : displayScore >= 25 ? "#FFD600" : "#FF003C";
+  const ScoreCard = ({ title, score, seconds, color, subtitle, live, testid, streakSlot }) => (
+    <div className="bg-[#0A0A0A] border border-[#333] p-5 text-center min-w-0" data-testid={testid}>
+      <div className="flex items-center justify-center gap-2 mb-1 min-h-4">
+        <span className="font-mono text-[10px] uppercase tracking-widest text-[#71717A]">{title}</span>
+        {live && (
+          <span className="font-mono text-[9px] text-[#00FF41] uppercase tracking-widest animate-pulse">● live</span>
+        )}
+      </div>
+      <p className="font-heading text-5xl font-bold tabular-nums" style={{ color }}>
+        {score}%
+      </p>
+      <p className="font-mono text-[10px] text-[#52525B] mt-1.5">
+        <span className="text-[13px] font-bold tabular-nums" style={{ color }}>{formatHours(seconds)}</span>
+        {" "}{subtitle} of {AWAKE_HOURS}h awake
+      </p>
+      <div className="w-full h-1.5 bg-[#1A1A1A] mt-3 max-w-xs mx-auto">
+        <div
+          className="h-full transition-all duration-500"
+          style={{ width: `${Math.min(score, 100)}%`, backgroundColor: color }}
+        />
+      </div>
+      {streakSlot}
+    </div>
+  );
 
   return (
     <div className="space-y-3" data-testid="stats-bar">
-      {/* Reality Score Headline */}
-      <div className="bg-[#0A0A0A] border border-[#333] p-5 text-center" data-testid="stat-reality-score">
-        <div className="flex items-center justify-center gap-2 mb-1">
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            data-testid="score-filter"
-            className="appearance-none bg-transparent text-center font-mono text-[10px] uppercase tracking-widest text-[#71717A] hover:text-[#A1A1AA] outline-none cursor-pointer transition-colors"
-          >
-            <option value="all">Reality Score ▾</option>
-            {CATEGORIES.map((c) => (
-              <option key={c.id} value={c.id}>{c.label} Score ▾</option>
-            ))}
-          </select>
-          {isLive && (
-            <span className="font-mono text-[9px] text-[#00FF41] uppercase tracking-widest animate-pulse">● live</span>
-          )}
-        </div>
-        <p className="font-heading text-5xl font-bold" style={{ color: displayColor }}>
-          {displayScore}%
-        </p>
-        <p className="font-mono text-[10px] text-[#52525B] mt-1.5">
-          <span className="text-[13px] font-bold tabular-nums" style={{ color: displayColor }}>{formatHours(displaySeconds)}</span>
-          {" "}{filterCat ? filterCat.label.toLowerCase() : "lived on purpose"} of {AWAKE_HOURS}h awake
-        </p>
-        <div className="w-full h-1.5 bg-[#1A1A1A] mt-3 max-w-xs mx-auto">
-          <div
-            className="h-full transition-all duration-500"
-            style={{ width: `${Math.min(displayScore, 100)}%`, backgroundColor: displayColor }}
-          />
-        </div>
-        {streak && streak.streak > 0 && (
-          <p
-            className="font-mono text-[10px] tracking-widest uppercase mt-2.5"
-            title={streak.todayEarned ? "Today already counts (1h+ on purpose)" : "Track 1h+ on purpose today to keep the streak"}
-            data-testid="streak-badge"
-          >
-            <span className={streak.todayEarned ? "text-[#FF8C00]" : "text-[#71717A]"}>
-              🔥 {streak.streak}-day streak{streak.todayEarned ? "" : " — at risk"}
-            </span>
-          </p>
-        )}
+      {/* Headline scores */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+        <ScoreCard
+          title="Reality Score"
+          score={realityScore}
+          seconds={onPurpose}
+          color={realityColor}
+          subtitle="lived on purpose"
+          live={isLive}
+          testid="stat-reality-score"
+          streakSlot={streak && streak.streak > 0 ? (
+            <p
+              className="font-mono text-[10px] tracking-widest uppercase mt-2.5"
+              title={streak.todayEarned ? "Today already counts (1h+ on purpose)" : "Track 1h+ on purpose today to keep the streak"}
+              data-testid="streak-badge"
+            >
+              <span className={streak.todayEarned ? "text-[#FF8C00]" : "text-[#71717A]"}>
+                🔥 {streak.streak}-day streak{streak.todayEarned ? "" : " — at risk"}
+              </span>
+            </p>
+          ) : null}
+        />
+        <ScoreCard
+          title="Focus Score"
+          score={focusScore}
+          seconds={focusSeconds}
+          color={focusColor}
+          subtitle="focus"
+          live={liveCategory === "focus"}
+          testid="stat-focus-score"
+        />
       </div>
 
       {/* stat cards */}
@@ -153,16 +169,16 @@ export default function StatsBar({ dailyData, currentTimer, projects = [], strea
           <span className="font-mono text-[10px] text-[#71717A] uppercase tracking-widest">On purpose</span>
           {breakdown.map((c) => {
             const Icon = c.Icon;
-            const active = filter === c.id;
-            const dim = filterCat && !active;
+            const active = activeBreakdown === c.id;
+            const dim = activeBreakdown && !active;
             return (
               <button
                 key={c.id}
-                onClick={() => setFilter(active ? "all" : c.id)}
+                onClick={() => setActiveBreakdown(active ? null : c.id)}
                 data-testid={`breakdown-cat-${c.id}`}
                 className={`flex items-center gap-1.5 font-mono text-[11px] tabular-nums transition-all ${active ? "font-bold underline underline-offset-4" : "hover:opacity-80"} ${dim ? "opacity-40" : ""}`}
                 style={{ color: c.color }}
-                title={active ? "Show overall score" : `Show ${c.label} score`}
+                title={active ? "Clear highlight" : `Highlight ${c.label}`}
               >
                 <Icon className="w-3 h-3" />
                 {c.label} {formatHours(catSeconds[c.id])}

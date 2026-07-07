@@ -10,6 +10,24 @@ import { syncGoals } from "./cloudSync";
 import { localDayStr, localStartOfWeekStr } from "./dates";
 
 export const GOALS_KEY = "rc_goals";
+export const DEFAULT_GOAL_TYPE = "focus";
+export const TASK_TYPES = [
+  { id: "focus", label: "Focus", color: "#00FF41" },
+  { id: "admin", label: "Admin", color: "#60A5FA" },
+  { id: "learning", label: "Learning", color: "#A78BFA" },
+  { id: "health", label: "Health", color: "#2DD4BF" },
+  { id: "life", label: "Life", color: "#FBBF24" },
+  { id: "errand", label: "Errand", color: "#F97316" },
+  { id: "other", label: "Other", color: "#A1A1AA" },
+];
+
+export function normalizeGoalType(type) {
+  return TASK_TYPES.some((t) => t.id === type) ? type : DEFAULT_GOAL_TYPE;
+}
+
+export function taskTypeMeta(type) {
+  return TASK_TYPES.find((t) => t.id === normalizeGoalType(type)) || TASK_TYPES[0];
+}
 
 // Fired whenever goals in localStorage were replaced from the cloud (another
 // device / a friend edited them); pages re-read on this signal.
@@ -98,6 +116,9 @@ export function completedByDay(goals) {
 export function normalizeGoal(goal) {
   return {
     subgoals: [],
+    type: DEFAULT_GOAL_TYPE,
+    aliases: [],
+    upNext: false,
     carryOver: true,
     done: false,
     doneAt: null,
@@ -106,13 +127,20 @@ export function normalizeGoal(goal) {
     startDate: todayStr(),
     startAt: null,
     ...goal,
+    type: normalizeGoalType(goal.type),
+    aliases: Array.isArray(goal.aliases) ? goal.aliases : [],
     subgoals: (goal.subgoals || []).map((s) => ({
+      type: DEFAULT_GOAL_TYPE,
+      aliases: [],
+      upNext: false,
       done: false,
       doneAt: null,
       doneSeconds: null,
       addedSeconds: 0,
       startAt: null,
       ...s,
+      type: normalizeGoalType(s.type),
+      aliases: Array.isArray(s.aliases) ? s.aliases : [],
     })),
   };
 }
@@ -126,23 +154,23 @@ export function normalizeGoals(goals) {
 // skips running entries separately (their duration is still null anyway).
 const isCountable = (entry) => entry && !entry.is_break;
 const entryDate = (entry) => (entry.start_time ? localDayStr(entry.start_time) : "");
+const labelsFor = (item) => [item?.label, ...((item?.aliases || []))].filter(Boolean);
 
-// A goal "owns" an entry by project (if linked) else by label — its own label
-// plus any subgoal labels, so subgoal work rolls up into the parent. Plain
-// no-project goals (no subgoals, no carry-over) keep the legacy "any productive
-// time" behavior so existing daily goals don't change.
+// A goal owns entries by its label/aliases plus its subgoal label/aliases. If a
+// project is linked, it also has to match; this keeps two goals in the same
+// project from both counting one focused timer.
 export function goalMatchesEntry(goal, entry) {
   if (!isCountable(entry)) return false;
-  if (goal.projectId) return entry.project_id === goal.projectId;
+  const labels = [...labelsFor(goal), ...(goal.subgoals || []).flatMap(labelsFor)];
+  if (goal.projectId) return entry.project_id === goal.projectId && labels.includes(entry.description);
   if (goal.carryOver || (goal.subgoals && goal.subgoals.length)) {
-    const labels = [goal.label, ...(goal.subgoals || []).map((s) => s.label)];
     return labels.includes(entry.description);
   }
   return true; // any productive task
 }
 
 export function subgoalMatchesEntry(sub, entry) {
-  return isCountable(entry) && entry.description === sub.label;
+  return isCountable(entry) && labelsFor(sub).includes(entry.description);
 }
 
 // Goals only count entries that happened after the goal was created (startAt),

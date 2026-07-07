@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Play, Plus, X, Undo2 } from "lucide-react";
+import { Play, Plus, X, Undo2, Star } from "lucide-react";
 import { toast } from "sonner";
 import { API } from "@/App";
 import AppShell from "@/components/AppShell";
@@ -11,7 +11,7 @@ import ProjectChip from "@/components/ProjectChip";
 import LogPastTimeForm from "@/components/LogPastTimeForm";
 import GoalCard from "@/components/GoalCard";
 import ReconcileSheet from "@/components/ReconcileSheet";
-import { readGoals, persistGoals as writeGoals, GOALS_REFRESH_EVENT, normalizeGoal, computePacing, computeGoalProgress, computeSubgoalProgress, isGoalActive, todayStr, formatGoalTime, completedSummary } from "@/lib/goals";
+import { readGoals, persistGoals as writeGoals, GOALS_REFRESH_EVENT, normalizeGoal, computePacing, computeGoalProgress, computeSubgoalProgress, isGoalActive, todayStr, formatGoalTime, completedSummary, TASK_TYPES, DEFAULT_GOAL_TYPE, taskTypeMeta } from "@/lib/goals";
 import { computeStreak } from "@/lib/streak";
 import { localDayStr } from "@/lib/dates";
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors } from "@dnd-kit/core";
@@ -37,6 +37,33 @@ function SortableGoalCard({ id, children }) {
   );
 }
 
+function TypeBadge({ type }) {
+  const meta = taskTypeMeta(type);
+  return (
+    <span
+      className="font-mono text-[9px] uppercase tracking-wider border px-1.5 py-0.5 shrink-0"
+      style={{ color: meta.color, borderColor: `${meta.color}66`, backgroundColor: `${meta.color}12` }}
+    >
+      {meta.label}
+    </span>
+  );
+}
+
+function TypeSelect({ value, onChange, className = "" }) {
+  return (
+    <select
+      value={value || DEFAULT_GOAL_TYPE}
+      onChange={(e) => onChange(e.target.value)}
+      title="Task type"
+      className={`bg-[#0A0A0A] border border-[#333] font-mono text-xs text-[#A1A1AA] px-2 py-1 outline-none ${className}`}
+    >
+      {TASK_TYPES.map((t) => (
+        <option key={t.id} value={t.id}>{t.label}</option>
+      ))}
+    </select>
+  );
+}
+
 export default function DashboardPage({ user }) {
   const [currentTimer, setCurrentTimer] = useState(null);
   const [dailyData, setDailyData] = useState(null);
@@ -51,6 +78,7 @@ export default function DashboardPage({ user }) {
   const [newGoalHours, setNewGoalHours] = useState("");
   const [newGoalProjectId, setNewGoalProjectId] = useState("");
   const [newGoalCarryOver, setNewGoalCarryOver] = useState(true);
+  const [newGoalType, setNewGoalType] = useState(DEFAULT_GOAL_TYPE);
   const [editingGoal, setEditingGoal] = useState(null);
   const [expandedGoals, setExpandedGoals] = useState(() => new Set());
   const [reconcileOpen, setReconcileOpen] = useState(false);
@@ -243,6 +271,20 @@ export default function DashboardPage({ user }) {
     persistGoals(updated);
   };
 
+  const aliasesForRename = (item, nextLabel) => {
+    const previous = (item.label || "").trim();
+    const next = (nextLabel || "").trim();
+    const aliases = Array.isArray(item.aliases) ? item.aliases : [];
+    if (!previous || previous === next || aliases.includes(previous)) return aliases;
+    return [...aliases, previous];
+  };
+
+  const clearGoalUpNext = (goal) => ({
+    ...goal,
+    upNext: false,
+    subgoals: (goal.subgoals || []).map((s) => ({ ...s, upNext: false })),
+  });
+
   // Drag-to-reorder open goals into your own top-down priority. Completed goals
   // keep their doneAt sort, so we just re-append them (their stored order is
   // irrelevant — the render re-sorts them).
@@ -304,11 +346,12 @@ export default function DashboardPage({ user }) {
         targetHours: hrs,
         projectId: newGoalProjectId || null,
         carryOver: newGoalCarryOver,
+        type: newGoalType,
         startDate: todayStr(),
         startAt: new Date().toISOString(),
       }),
     ]);
-    setNewGoalLabel(""); setNewGoalHours(""); setNewGoalProjectId(""); setNewGoalCarryOver(true); setShowGoalForm(false);
+    setNewGoalLabel(""); setNewGoalHours(""); setNewGoalProjectId(""); setNewGoalCarryOver(true); setNewGoalType(DEFAULT_GOAL_TYPE); setShowGoalForm(false);
   };
 
   // Start timer for a specific goal / subgoal (stops current timer first if running)
@@ -334,7 +377,16 @@ export default function DashboardPage({ user }) {
 
   const saveEditGoal = () => {
     if (!editingGoal || !editingGoal.label.trim() || !editingGoal.targetHours) return;
-    saveGoals(goals.map((g) => g.id === editingGoal.id ? { ...g, ...editingGoal } : g));
+    const targetHours = parseFloat(editingGoal.targetHours);
+    if (!targetHours || targetHours <= 0) return;
+    saveGoals(goals.map((g) => g.id === editingGoal.id ? {
+      ...g,
+      ...editingGoal,
+      label: editingGoal.label.trim(),
+      targetHours,
+      type: editingGoal.type || DEFAULT_GOAL_TYPE,
+      aliases: aliasesForRename(g, editingGoal.label),
+    } : g));
     setEditingGoal(null);
   };
 
@@ -343,22 +395,35 @@ export default function DashboardPage({ user }) {
   const mapSubgoal = (goalId, subId, fn) =>
     mapGoal(goalId, (g) => ({ ...g, subgoals: g.subgoals.map((s) => (s.id === subId ? fn(s) : s)) }));
 
-  const addSubgoal = (goalId, label, hours) =>
+  const addSubgoal = (goalId, label, hours, type = DEFAULT_GOAL_TYPE) =>
     mapGoal(goalId, (g) => ({
       ...g,
-      subgoals: [...g.subgoals, { id: `${Date.now()}_${g.subgoals.length}`, label, targetHours: hours, done: false, doneAt: null, doneSeconds: null, addedSeconds: 0, startAt: new Date().toISOString() }],
+      subgoals: [...g.subgoals, { id: `${Date.now()}_${g.subgoals.length}`, label, targetHours: hours, type, aliases: [], upNext: false, done: false, doneAt: null, doneSeconds: null, addedSeconds: 0, startAt: new Date().toISOString() }],
     }));
   const deleteSubgoal = (goalId, subId) =>
     mapGoal(goalId, (g) => ({ ...g, subgoals: g.subgoals.filter((s) => s.id !== subId) }));
 
+  const editSubgoal = (goalId, subId, fields) =>
+    mapSubgoal(goalId, subId, (s) => ({
+      ...s,
+      ...fields,
+      label: fields.label.trim(),
+      targetHours: parseFloat(fields.targetHours),
+      type: fields.type || DEFAULT_GOAL_TYPE,
+      aliases: aliasesForRename(s, fields.label),
+    }));
+
+  const deleteGoal = (goalId) =>
+    saveGoals(goals.filter((g) => g.id !== goalId));
+
   const markGoalDone = (goalId) =>
     mapGoal(goalId, (g) => g.done
       ? { ...g, done: false, doneAt: null, doneSeconds: null }
-      : { ...g, done: true, doneAt: new Date().toISOString(), doneSeconds: Math.round(goalSecondsNow(g)) });
+      : { ...clearGoalUpNext(g), done: true, doneAt: new Date().toISOString(), doneSeconds: Math.round(goalSecondsNow(g)) });
   const markSubgoalDone = (goalId, subId) =>
     mapSubgoal(goalId, subId, (s) => s.done
       ? { ...s, done: false, doneAt: null, doneSeconds: null }
-      : { ...s, done: true, doneAt: new Date().toISOString(), doneSeconds: Math.round(subgoalSecondsNow(goals.find((g) => g.id === goalId), s)) });
+      : { ...s, upNext: false, done: true, doneAt: new Date().toISOString(), doneSeconds: Math.round(subgoalSecondsNow(goals.find((g) => g.id === goalId), s)) });
 
   // Adjust the TARGET time a goal/subgoal needs (extend or shrink). Worked time
   // is added via "Log past time", not here.
@@ -366,6 +431,34 @@ export default function DashboardPage({ user }) {
     mapGoal(goalId, (g) => ({ ...g, targetHours: hours }));
   const setSubgoalTarget = (goalId, subId, hours) =>
     mapSubgoal(goalId, subId, (s) => ({ ...s, targetHours: hours }));
+
+  const setGoalType = (goalId, type) =>
+    mapGoal(goalId, (g) => ({ ...g, type }));
+  const setSubgoalType = (goalId, subId, type) =>
+    mapSubgoal(goalId, subId, (s) => ({ ...s, type }));
+
+  const toggleGoalUpNext = (goalId) => {
+    const selected = goals.find((g) => g.id === goalId);
+    const shouldClear = !!selected?.upNext;
+    saveGoals(goals.map((g) => {
+      const cleared = clearGoalUpNext(g);
+      return g.id === goalId && !shouldClear ? { ...cleared, upNext: true } : cleared;
+    }));
+  };
+
+  const toggleSubgoalUpNext = (goalId, subId) => {
+    const selectedGoal = goals.find((g) => g.id === goalId);
+    const selectedSub = selectedGoal?.subgoals?.find((s) => s.id === subId);
+    const shouldClear = !!selectedSub?.upNext;
+    saveGoals(goals.map((g) => {
+      const cleared = clearGoalUpNext(g);
+      if (g.id !== goalId || shouldClear) return cleared;
+      return {
+        ...cleared,
+        subgoals: cleared.subgoals.map((s) => (s.id === subId ? { ...s, upNext: true } : s)),
+      };
+    }));
+  };
 
   const toggleCarryOver = (goalId) =>
     mapGoal(goalId, (g) => ({ ...g, carryOver: !g.carryOver, startDate: g.startDate || todayStr() }));
@@ -499,10 +592,17 @@ export default function DashboardPage({ user }) {
     .filter((g) => g.done)
     .sort((a, b) => (b.doneAt || "").localeCompare(a.doneAt || ""));
   const completedStats = completedSummary(goals);
-  const renderGoalCard = (goal, dragHandle = null) => (
+  const upNextItem = openGoals.reduce((found, goal) => {
+    if (found) return found;
+    if (goal.upNext) return { kind: "goal", goal, label: goal.label, type: goal.type };
+    const sub = (goal.subgoals || []).find((s) => !s.done && s.upNext);
+    return sub ? { kind: "subgoal", goal, sub, label: sub.label, parent: goal.label, type: sub.type } : null;
+  }, null);
+  const renderGoalCard = (goal, dragHandle = null, priorityIndex = null) => (
     <GoalCard
       key={goal.id}
       goal={goal}
+      priorityIndex={priorityIndex}
       dragHandle={dragHandle}
       projects={projects}
       ctx={goalCtx}
@@ -516,10 +616,15 @@ export default function DashboardPage({ user }) {
       onSetSubgoalTarget={setSubgoalTarget}
       onAddSubgoal={addSubgoal}
       onDeleteSubgoal={deleteSubgoal}
+      onEditSubgoal={editSubgoal}
       onEditGoal={(g) => setEditingGoal({ ...g })}
-      onDeleteGoal={(id) => saveGoals(goals.filter((g) => g.id !== id))}
+      onDeleteGoal={deleteGoal}
       onSetGoalProject={setGoalProject}
+      onSetGoalType={setGoalType}
+      onSetSubgoalType={setSubgoalType}
       onToggleCarryOver={toggleCarryOver}
+      onToggleGoalUpNext={toggleGoalUpNext}
+      onToggleSubgoalUpNext={toggleSubgoalUpNext}
     />
   );
 
@@ -576,9 +681,10 @@ export default function DashboardPage({ user }) {
 
         {/* Goals */}
         <div className="bg-[#0A0A0A] border border-[#333] p-4 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-3 min-w-0">
-              <span className="font-mono text-[10px] text-[#71717A] uppercase tracking-widest">Goals</span>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 space-y-1">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="font-mono text-[10px] text-[#71717A] uppercase tracking-widest">🎯 Goals</span>
               {(pacing.early > 0 || pacing.over > 0) && (
                 <span
                   data-testid="pacing-badge"
@@ -587,6 +693,12 @@ export default function DashboardPage({ user }) {
                 >
                   {pacingMeta.text}{pacingAmount && ` ${pacingAmount}`}
                 </span>
+              )}
+              </div>
+              {openGoals.length > 1 && (
+                <p className="font-mono text-[9px] text-[#52525B]">
+                  Drag goals top-to-bottom by priority / what to finish earlier.
+                </p>
               )}
             </div>
             <div className="flex items-center gap-3 shrink-0">
@@ -613,9 +725,30 @@ export default function DashboardPage({ user }) {
             <p className="font-mono text-[11px] text-[#71717A]">No goals set. Add targets to track your progress.</p>
           )}
 
+          {upNextItem && (
+            <div className="flex items-center justify-between gap-3 border border-[#FBBF24]/35 bg-[#FBBF24]/5 p-2" data-testid="up-next-row">
+              <div className="flex items-center gap-2 min-w-0">
+                <Star className="w-3.5 h-3.5 text-[#FBBF24] fill-current shrink-0" />
+                <span className="font-mono text-[9px] text-[#FBBF24] uppercase tracking-widest shrink-0">Up Next</span>
+                <TypeBadge type={upNextItem.type} />
+                <span className="font-mono text-xs text-[#EDEDED] truncate">{upNextItem.label}</span>
+                {upNextItem.parent && (
+                  <span className="font-mono text-[10px] text-[#52525B] truncate">in {upNextItem.parent}</span>
+                )}
+              </div>
+              <button
+                onClick={() => upNextItem.kind === "goal" ? handleStartForGoal(upNextItem.goal) : startForSubgoal(upNextItem.goal, upNextItem.sub)}
+                className="flex items-center gap-1 border border-[#FBBF24]/50 text-[#FBBF24] font-mono text-[9px] font-bold uppercase tracking-wider px-2 py-1 hover:bg-[#FBBF24]/10 transition-colors shrink-0"
+              >
+                <Play className="w-2.5 h-2.5" />
+                Start
+              </button>
+            </div>
+          )}
+
           <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={handleGoalDragEnd}>
             <SortableContext items={openGoals.map((g) => g.id)} strategy={verticalListSortingStrategy}>
-              {openGoals.map((goal) => (
+              {openGoals.map((goal, index) => (
                 <SortableGoalCard key={goal.id} id={goal.id}>
                   {(dragHandle) => {
                     if (editingGoal?.id === goal.id) {
@@ -646,6 +779,11 @@ export default function DashboardPage({ user }) {
                         <option key={p.project_id} value={p.project_id}>{p.name}</option>
                       ))}
                     </select>
+                    <TypeSelect
+                      value={editingGoal.type}
+                      onChange={(type) => setEditingGoal({ ...editingGoal, type })}
+                      className="min-w-[110px]"
+                    />
                     <div className="flex border border-[#222]" title="Until done keeps your time across days; Daily resets each midnight">
                       <button
                         onClick={() => setEditingGoal({ ...editingGoal, carryOver: true })}
@@ -680,7 +818,7 @@ export default function DashboardPage({ user }) {
                 </div>
                       );
                     }
-                    return renderGoalCard(goal, dragHandle);
+                    return renderGoalCard(goal, dragHandle, index);
                   }}
                 </SortableGoalCard>
               ))}
@@ -722,7 +860,7 @@ export default function DashboardPage({ user }) {
                 autoFocus
                 className="w-full bg-transparent border-b border-[#333] focus:border-[#00FF41] py-1.5 font-mono text-xs text-[#EDEDED] placeholder:text-[#333] outline-none transition-colors"
               />
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <input
                   type="number"
                   value={newGoalHours}
@@ -736,13 +874,18 @@ export default function DashboardPage({ user }) {
                 <select
                   value={newGoalProjectId}
                   onChange={(e) => setNewGoalProjectId(e.target.value)}
-                  className="flex-1 bg-[#0A0A0A] border border-[#333] font-mono text-xs text-[#A1A1AA] px-2 py-1.5 outline-none"
+                  className="flex-1 min-w-[150px] bg-[#0A0A0A] border border-[#333] font-mono text-xs text-[#A1A1AA] px-2 py-1.5 outline-none"
                 >
                   <option value="">Any tracked time</option>
                   {projects.map((p) => (
                     <option key={p.project_id} value={p.project_id}>{p.name}</option>
                   ))}
                 </select>
+                <TypeSelect
+                  value={newGoalType}
+                  onChange={setNewGoalType}
+                  className="w-28 py-1.5"
+                />
                 <button
                   onClick={addGoal}
                   className="flex items-center gap-1 bg-[#00FF41] text-black font-mono text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 hover:bg-[#00CC33] transition-colors"

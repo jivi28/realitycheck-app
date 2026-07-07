@@ -355,7 +355,7 @@ export default function ActiveTimer({ currentTimer, projects, onStart, onStop, o
                 </button>
               )}
               {showPresetMenu && (
-                <div className="absolute right-0 bottom-full mb-1 w-52 bg-[#0A0A0A] border border-[#333] z-50 shadow-lg p-1" data-testid="preset-menu">
+                <div className="absolute right-0 top-full mt-1 w-52 max-h-[min(18rem,calc(100vh-8rem))] overflow-y-auto bg-[#0A0A0A] border border-[#333] z-50 shadow-lg p-1" data-testid="preset-menu">
                   {PRESETS.map((p) => (
                     <button
                       key={p.id}
