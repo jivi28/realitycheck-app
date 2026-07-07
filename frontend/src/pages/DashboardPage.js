@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Play, Plus, X, Undo2, Star } from "lucide-react";
+import { Play, Plus, X, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { API } from "@/App";
 import AppShell from "@/components/AppShell";
@@ -11,7 +11,7 @@ import ProjectChip from "@/components/ProjectChip";
 import LogPastTimeForm from "@/components/LogPastTimeForm";
 import GoalCard from "@/components/GoalCard";
 import ReconcileSheet from "@/components/ReconcileSheet";
-import { readGoals, persistGoals as writeGoals, GOALS_REFRESH_EVENT, normalizeGoal, computePacing, computeGoalProgress, computeSubgoalProgress, isGoalActive, todayStr, formatGoalTime, completedSummary } from "@/lib/goals";
+import { readGoals, persistGoals as writeGoals, GOALS_REFRESH_EVENT, normalizeGoal, computePacing, computeGoalProgress, computeSubgoalProgress, isGoalActive, isSubgoalActive, todayStr, formatGoalTime, completedSummary } from "@/lib/goals";
 import { computeStreak } from "@/lib/streak";
 import { localDayStr } from "@/lib/dates";
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors } from "@dnd-kit/core";
@@ -556,18 +556,48 @@ export default function DashboardPage({ user }) {
     .filter((g) => g.done)
     .sort((a, b) => (b.doneAt || "").localeCompare(a.doneAt || ""));
   const completedStats = completedSummary(goals);
-  const upNextItem = openGoals.reduce((found, goal) => {
+  const explicitNextItem = openGoals.reduce((found, goal) => {
     if (found) return found;
     if (goal.upNext) return { kind: "goal", goal, label: goal.label };
     const sub = (goal.subgoals || []).find((s) => !s.done && s.upNext);
     return sub ? { kind: "subgoal", goal, sub, label: sub.label, parent: goal.label } : null;
   }, null);
-  const upNextLabel = currentTimer ? "Up Next" : "Start Next";
+
+  const nowGoalIndex = currentTimer ? openGoals.findIndex((g) => isGoalActive(g, currentTimer)) : -1;
+  const nowGoal = nowGoalIndex >= 0 ? openGoals[nowGoalIndex] : null;
+  const explicitNextIsNow = explicitNextItem
+    ? explicitNextItem.kind === "goal"
+      ? !!nowGoal && explicitNextItem.goal.id === nowGoal.id
+      : isSubgoalActive(explicitNextItem.sub, currentTimer)
+    : false;
+  const automaticNextGoal = !explicitNextItem || explicitNextIsNow
+    ? currentTimer
+      ? nowGoalIndex >= 0 ? openGoals[nowGoalIndex + 1] || null : null
+      : openGoals[0] || null
+    : null;
+  const nextGoalId = !explicitNextIsNow && explicitNextItem?.kind === "goal"
+    ? explicitNextItem.goal.id
+    : automaticNextGoal?.id || null;
+  const nextSubgoalParentId = !explicitNextIsNow && explicitNextItem?.kind === "subgoal"
+    ? explicitNextItem.goal.id
+    : null;
+  const nextSubgoalId = !explicitNextIsNow && explicitNextItem?.kind === "subgoal"
+    ? explicitNextItem.sub.id
+    : null;
+
+  const hierarchyStateFor = (goal) => {
+    if (nowGoal?.id === goal.id) return "now";
+    if (nextGoalId === goal.id) return currentTimer ? "next" : "start";
+    return null;
+  };
+
   const renderGoalCard = (goal, dragHandle = null, priorityIndex = null) => (
     <GoalCard
       key={goal.id}
       goal={goal}
       priorityIndex={priorityIndex}
+      hierarchyState={hierarchyStateFor(goal)}
+      nextSubgoalId={nextSubgoalParentId === goal.id ? nextSubgoalId : null}
       dragHandle={dragHandle}
       projects={projects}
       ctx={goalCtx}
@@ -686,26 +716,6 @@ export default function DashboardPage({ user }) {
 
           {goals.length === 0 && !showGoalForm && (
             <p className="font-mono text-[11px] text-[#71717A]">No goals set. Add targets to track your progress.</p>
-          )}
-
-          {upNextItem && (
-            <div className="flex items-center justify-between gap-3 border border-[#FBBF24]/35 bg-[#FBBF24]/5 p-2" data-testid="up-next-row">
-              <div className="flex items-center gap-2 min-w-0">
-                <Star className="w-3.5 h-3.5 text-[#FBBF24] fill-current shrink-0" />
-                <span className="font-mono text-[9px] text-[#FBBF24] uppercase tracking-widest shrink-0">{upNextLabel}</span>
-                <span className="font-mono text-xs text-[#EDEDED] truncate">{upNextItem.label}</span>
-                {upNextItem.parent && (
-                  <span className="font-mono text-[10px] text-[#52525B] truncate">in {upNextItem.parent}</span>
-                )}
-              </div>
-              <button
-                onClick={() => upNextItem.kind === "goal" ? handleStartForGoal(upNextItem.goal) : startForSubgoal(upNextItem.goal, upNextItem.sub)}
-                className="flex items-center gap-1 border border-[#FBBF24]/50 text-[#FBBF24] font-mono text-[9px] font-bold uppercase tracking-wider px-2 py-1 hover:bg-[#FBBF24]/10 transition-colors shrink-0"
-              >
-                <Play className="w-2.5 h-2.5" />
-                Start
-              </button>
-            </div>
           )}
 
           <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={handleGoalDragEnd}>
