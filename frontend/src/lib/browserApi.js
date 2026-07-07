@@ -1,9 +1,14 @@
-const STORAGE_KEY = "realitycheck-browser-v1";
+import * as cloud from "./cloudSync";
+import { GOALS_KEY, GOALS_REFRESH_EVENT, normalizeGoals } from "./goals";
+import { localDayStr, dayOffset, localStartOfWeekStr, weekdayIndexLocal, isoForLocalMinutes } from "./dates";
+
+export const STORAGE_KEY = "realitycheck-browser-v1";
 const USER_ID = "shared-workspace";
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || "";
 const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_PUBLISHABLE_KEY || "";
 const CLOUD_STATE_URL = `${SUPABASE_URL}/rest/v1/realitycheck_shared_state`;
 const USE_CLOUD_STORAGE = Boolean(SUPABASE_URL && SUPABASE_KEY);
+const CLOUD_REFRESH_MS = 60 * 1000;
 
 const DEFAULT_PROJECTS = [
   { project_id: "proj_deep_work", name: "Deep Work", color: "#00FF41", is_default: true, category: "focus", icon: "briefcase" },
@@ -50,40 +55,173 @@ function supabaseHeaders(extra = {}) {
   };
 }
 
-async function loadState() {
-  if (!USE_CLOUD_STORAGE) return loadBrowserState();
+// ---------------------------------------------------------------------------
+// Persistence modes:
+//   "local"   — no Supabase env: localStorage only (unchanged behavior).
+//   "records" — per-record rc_* tables via cloudSync (the fixed sync).
+//   "legacy"  — Supabase configured but rc_* tables not migrated yet: keep the
+//               old whole-blob row so nothing breaks before the SQL runs.
+// State is cached in memory and written to localStorage on every save either
+// way, so offline/fallback behavior matches the old code.
+// ---------------------------------------------------------------------------
+
+let mode = "local";
+let cachedState = null;
+let syncedSnapshot = null; // deep clone of the last state fully pushed
+let pushFailed = false; // when true, skip refresh so the retry isn't clobbered
+let lastCloudRefresh = 0;
+let initPromise = null;
+
+const deepClone = (value) => JSON.parse(JSON.stringify(value));
+
+function readLocalGoals() {
   try {
-    const response = await window.fetch(`${CLOUD_STATE_URL}?id=eq.main&select=data`, {
-      headers: supabaseHeaders(),
-    });
-    if (!response.ok) throw new Error(`Supabase returned ${response.status}`);
-    const rows = await response.json();
-    if (rows.length) return rows[0].data;
-    const initialState = createState();
-    await saveState(initialState);
-    return initialState;
-  } catch (err) {
-    console.warn("Supabase unavailable, falling back to localStorage:", err.message);
-    return loadBrowserState();
+    return normalizeGoals(JSON.parse(window.localStorage.getItem(GOALS_KEY)) || []);
+  } catch (_error) {
+    return [];
   }
 }
 
-async function saveState(state) {
-  if (!USE_CLOUD_STORAGE) {
-    saveBrowserState(state);
-    return;
-  }
+function writeLocalGoals(goals) {
+  window.localStorage.setItem(GOALS_KEY, JSON.stringify(goals));
+  window.dispatchEvent(new Event(GOALS_REFRESH_EVENT));
+}
+
+async function legacyBlobSave(state) {
+  const response = await window.fetch(CLOUD_STATE_URL, {
+    method: "POST",
+    headers: supabaseHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
+    body: JSON.stringify({ id: "main", data: state, updated_at: new Date().toISOString() }),
+  });
+  if (!response.ok) throw new Error(`Supabase returned ${response.status}`);
+}
+
+async function initState() {
+  cachedState = loadBrowserState();
+  if (!USE_CLOUD_STORAGE) return;
   try {
-    const response = await window.fetch(CLOUD_STATE_URL, {
-      method: "POST",
-      headers: supabaseHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
-      body: JSON.stringify({ id: "main", data: state, updated_at: new Date().toISOString() }),
-    });
-    if (!response.ok) throw new Error(`Supabase returned ${response.status}`);
+    const cols = await cloud.fetchAllCollections();
+    mode = "records";
+    const cloudEmpty = cloud.COLLECTION_KEYS.every((key) => !cols[key].length);
+    if (cloudEmpty) {
+      // One-time seed: prefer the legacy blob (the previous cloud truth),
+      // else whatever this browser has locally.
+      let seed = null;
+      try {
+        seed = await cloud.fetchLegacyBlob();
+      } catch (_error) {
+        seed = null;
+      }
+      if (seed) cachedState = seed;
+      const goals = readLocalGoals();
+      await cloud.seedCollections(cachedState, goals);
+      cloud.setGoalsSnapshot(goals);
+    } else {
+      for (const key of cloud.COLLECTION_KEYS) cachedState[key] = cols[key];
+      if (!cachedState.projects.length) cachedState.projects = createState().projects;
+      if (cols.goals.length) {
+        // Cloud goals win; a device with unsynced local goals pushes them on
+        // its next goal edit anyway.
+        writeLocalGoals(cols.goals);
+        cloud.setGoalsSnapshot(cols.goals);
+      } else {
+        cloud.setGoalsSnapshot([]);
+        const goals = readLocalGoals();
+        if (goals.length) await cloud.syncGoals(goals);
+      }
+    }
+    syncedSnapshot = deepClone(cachedState);
+    saveBrowserState(cachedState);
+    lastCloudRefresh = Date.now();
   } catch (err) {
-    console.warn("Supabase save failed, falling back to localStorage:", err.message);
-    saveBrowserState(state);
+    mode = "legacy";
+    if (err.tablesMissing) {
+      console.warn(err.message);
+    } else {
+      console.warn("Supabase unavailable, using localStorage cache:", err.message);
+    }
+    try {
+      const blob = await cloud.fetchLegacyBlob();
+      if (blob) {
+        cachedState = blob;
+        saveBrowserState(cachedState);
+      }
+    } catch (_error) {
+      /* offline: keep the localStorage cache */
+    }
   }
+}
+
+function ensureInit() {
+  if (!initPromise) initPromise = initState();
+  return initPromise;
+}
+
+// Pull remote changes (another device / a friend) at most once a minute, and
+// never while a failed push is waiting to retry — the retry diff would be
+// computed against clobbered state.
+async function refreshFromCloud() {
+  try {
+    const cols = await cloud.fetchAllCollections();
+    for (const key of cloud.COLLECTION_KEYS) cachedState[key] = cols[key];
+    syncedSnapshot = deepClone(cachedState);
+    saveBrowserState(cachedState);
+    if (cloud.goalsSyncReady()) {
+      const localGoals = JSON.stringify(readLocalGoals());
+      if (JSON.stringify(normalizeGoals(cols.goals)) !== localGoals) {
+        writeLocalGoals(cols.goals);
+      }
+      cloud.setGoalsSnapshot(cols.goals);
+    }
+    lastCloudRefresh = Date.now();
+  } catch (err) {
+    console.warn("Cloud refresh failed, keeping local cache:", err.message);
+    lastCloudRefresh = Date.now(); // don't hammer while offline
+  }
+}
+
+async function loadState() {
+  await ensureInit();
+  if (mode === "records" && !pushFailed && Date.now() - lastCloudRefresh > CLOUD_REFRESH_MS) {
+    await refreshFromCloud();
+  }
+  return cachedState;
+}
+
+async function saveState(state) {
+  cachedState = state;
+  saveBrowserState(state);
+  if (mode === "records") {
+    try {
+      await cloud.syncStateDiff(syncedSnapshot, state);
+      syncedSnapshot = deepClone(state);
+      pushFailed = false;
+    } catch (err) {
+      pushFailed = true;
+      console.warn("Cloud sync failed (kept locally, will retry):", err.message);
+    }
+  } else if (mode === "legacy") {
+    try {
+      await legacyBlobSave(state);
+    } catch (err) {
+      console.warn("Supabase save failed, kept locally:", err.message);
+    }
+  }
+}
+
+// Force the next loadState to pull remote changes (used on tab focus).
+export function invalidateCloudCache() {
+  lastCloudRefresh = 0;
+}
+
+// Replace everything (JSON import): swap the cache, push the full diff, and
+// overwrite goals. Caller reloads the UI afterwards.
+export async function replaceAllData({ state, goals }) {
+  await ensureInit();
+  const next = { ...createState(), ...state };
+  await saveState(next);
+  writeLocalGoals(normalizeGoals(goals || []));
+  await cloud.syncGoals(normalizeGoals(goals || []));
 }
 
 function id(prefix) {
@@ -116,7 +254,7 @@ function entryType(entry) {
 }
 
 function dateValue(isoString) {
-  return isoString.slice(0, 10);
+  return localDayStr(isoString);
 }
 
 function finishedForDate(state, date) {
@@ -134,15 +272,13 @@ function hhmmToMinutes(hhmm) {
   return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
 }
 
-// Mon=0..Sun=6 (matches SchedulesPage DAYS and startOfWeek's (getUTCDay()+6)%7).
+// Mon=0..Sun=6 (matches SchedulesPage DAYS), on the local calendar.
 function weekdayIndex(date) {
-  return (new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7;
+  return weekdayIndexLocal(date);
 }
 
 function isoForMinutes(date, minutes) {
-  const base = new Date(`${date}T00:00:00Z`);
-  base.setUTCMinutes(minutes);
-  return base.toISOString();
+  return isoForLocalMinutes(date, minutes);
 }
 
 // Subtract any portions of [winStart, winEnd] (minutes since midnight on `date`)
@@ -175,7 +311,7 @@ function scheduledEntriesForDate(state, date) {
     .filter((e) => entryType(e) !== "scheduled")
     .map((e) => {
       const s = new Date(e.start_time), en = new Date(e.end_time || e.start_time);
-      return [s.getUTCHours() * 60 + s.getUTCMinutes(), en.getUTCHours() * 60 + en.getUTCMinutes()];
+      return [s.getHours() * 60 + s.getMinutes(), en.getHours() * 60 + en.getMinutes()];
     });
 
   const out = [];
@@ -244,16 +380,11 @@ function analyticsForDate(state, date) {
 }
 
 function startOfWeek() {
-  const today = new Date();
-  const day = (today.getUTCDay() + 6) % 7;
-  today.setUTCDate(today.getUTCDate() - day);
-  return today.toISOString().slice(0, 10);
+  return localStartOfWeekStr();
 }
 
 function dateOffset(startDate, offset) {
-  const date = new Date(`${startDate}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + offset);
-  return date.toISOString().slice(0, 10);
+  return dayOffset(startDate, offset);
 }
 
 function weeklyAnalytics(state) {
@@ -333,16 +464,17 @@ function addGapEntry(state, endTime) {
   });
 }
 
-function buildReport(state) {
-  const weekly = weeklyAnalytics(state);
+// Fixed data-driven template — used when the AI endpoint is unavailable, and
+// labeled as an offline summary so the page never claims fake AI.
+function buildLocalReportContent(weekly) {
   const productive = weekly.total_productive_hours;
   const scheduled = weekly.total_scheduled_hours;
   const unaccounted = weekly.total_break_hours;
   const ratio = productive ? `${(unaccounted / productive).toFixed(1)}:1` : "undefined";
   const zeroDays = weekly.days
-    .filter((day) => day.date <= new Date().toISOString().slice(0, 10) && !day.productive_hours)
+    .filter((day) => day.date <= localDayStr() && !day.productive_hours)
     .map((day) => day.day_name);
-  const content = [
+  return [
     "## Reality Check",
     "",
     `You lived **${productive.toFixed(1)}h** on purpose this week — work and intentional life time. Committed time was **${scheduled.toFixed(1)}h**. Drifted (untracked) time was **${unaccounted.toFixed(1)}h**.`,
@@ -366,18 +498,47 @@ function buildReport(state) {
     "- Categorize projects so your day shows the real mix (focus, health, social, care).",
     "- Review drifted time daily, while it is still actionable.",
   ].join("\n");
+}
+
+async function buildReport(state) {
+  const weekly = weeklyAnalytics(state);
+  const data_summary = {
+    total_productive_hours: weekly.total_productive_hours,
+    total_scheduled_hours: weekly.total_scheduled_hours,
+    total_break_hours: weekly.total_break_hours,
+    days: weekly.days,
+  };
+
+  // Try the real AI endpoint (a Vercel function, bypassed by the fetch
+  // interceptor); fall back to the local template if it's not configured.
+  let content = null;
+  let source = "local";
+  try {
+    const response = await window.fetch("/api/generate-report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data_summary }),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      if (data.content) {
+        content = data.content;
+        source = "ai";
+      }
+    }
+  } catch (_error) {
+    /* offline or endpoint missing — use the local template */
+  }
+  if (!content) content = buildLocalReportContent(weekly);
+
   return {
     report_id: id("report"),
     user_id: USER_ID,
     week_start: startOfWeek(),
     generated_at: new Date().toISOString(),
     content,
-    data_summary: {
-      total_productive_hours: productive,
-      total_scheduled_hours: scheduled,
-      total_break_hours: unaccounted,
-      days: weekly.days,
-    },
+    source,
+    data_summary,
   };
 }
 
@@ -437,6 +598,13 @@ async function handleApiRequest(path, method, request) {
     return json(schedule);
   }
   const scheduleMatch = path.match(/^\/api\/schedules\/([^/]+)$/);
+  if (scheduleMatch && method === "PUT") {
+    const schedule = state.schedules.find((item) => item.schedule_id === scheduleMatch[1]);
+    if (!schedule) return json({ detail: "Schedule not found" }, 404);
+    Object.assign(schedule, body);
+    await saveState(state);
+    return json(schedule);
+  }
   if (scheduleMatch && method === "DELETE") {
     state.schedules = state.schedules.filter((item) => item.schedule_id !== scheduleMatch[1]);
     await saveState(state);
@@ -538,6 +706,24 @@ async function handleApiRequest(path, method, request) {
     return json(enrichEntries([entry], state)[0]);
   }
   const entryMatch = path.match(/^\/api\/entries\/([^/]+)$/);
+  if (entryMatch && method === "PUT") {
+    const entry = state.entries.find((item) => item.entry_id === entryMatch[1]);
+    if (!entry) return json({ detail: "Entry not found" }, 404);
+    if (entry.is_running) return json({ detail: "Stop the timer before editing this entry" }, 400);
+    const start = body.start_time ? new Date(body.start_time) : new Date(entry.start_time);
+    const end = body.end_time ? new Date(body.end_time) : new Date(entry.end_time);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+      return json({ detail: "End time must be after start time" }, 400);
+    }
+    if ((end - start) / 1000 > 24 * 3600) return json({ detail: "Entry can't be longer than 24 hours" }, 400);
+    if (typeof body.description === "string" && body.description.trim()) entry.description = body.description.trim();
+    if ("project_id" in body) entry.project_id = body.project_id || null;
+    entry.start_time = start.toISOString();
+    entry.end_time = end.toISOString();
+    entry.duration = (end - start) / 1000;
+    await saveState(state);
+    return json(enrichEntries([entry], state)[0]);
+  }
   if (entryMatch && method === "DELETE") {
     state.entries = state.entries.filter((entry) => entry.entry_id !== entryMatch[1]);
     await saveState(state);
@@ -545,12 +731,12 @@ async function handleApiRequest(path, method, request) {
   }
 
   if (path === "/api/analytics/daily" && method === "GET") {
-    const date = request.searchParams.get("date") || new Date().toISOString().slice(0, 10);
+    const date = request.searchParams.get("date") || localDayStr();
     return json(analyticsForDate(state, date));
   }
   if (path === "/api/analytics/weekly" && method === "GET") return json(weeklyAnalytics(state));
   if (path === "/api/analytics/projects" && method === "GET") {
-    const date = request.searchParams.get("date") || new Date().toISOString().slice(0, 10);
+    const date = request.searchParams.get("date") || localDayStr();
     return json(projectAnalytics(state, date));
   }
 
@@ -558,7 +744,7 @@ async function handleApiRequest(path, method, request) {
     return json(state.reports.slice().sort((a, b) => b.generated_at.localeCompare(a.generated_at)));
   }
   if (path === "/api/reports/weekly" && method === "POST") {
-    const report = buildReport(state);
+    const report = await buildReport(state);
     state.reports.unshift(report);
     await saveState(state);
     return json(report);
@@ -578,10 +764,18 @@ async function handleApiRequest(path, method, request) {
 export function installBrowserApi() {
   if (installed || typeof window === "undefined") return;
   installed = true;
+  // Coming back to the tab pulls remote changes on the next API call.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) invalidateCloudCache();
+  });
   const nativeFetch = window.fetch.bind(window);
   window.fetch = (input, options = {}) => {
     const url = new URL(typeof input === "string" ? input : input.url, window.location.origin);
     if (url.origin !== window.location.origin || !url.pathname.startsWith("/api/")) {
+      return nativeFetch(input, options);
+    }
+    // Real serverless endpoints (not part of the mock API) pass through.
+    if (url.pathname.startsWith("/api/generate-report") || url.pathname.startsWith("/api/push-")) {
       return nativeFetch(input, options);
     }
     const method = (options.method || (typeof input !== "string" && input.method) || "GET").toUpperCase();

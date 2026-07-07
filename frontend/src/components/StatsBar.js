@@ -10,7 +10,7 @@ function entryCategory(entry, projectsById) {
   return entry.category || projectCategory(projectsById[entry.project_id]);
 }
 
-export default function StatsBar({ dailyData, currentTimer, projects = [], onReconcile }) {
+export default function StatsBar({ dailyData, currentTimer, projects = [], streak = null, onReconcile }) {
   // "all" = overall Reality Score; otherwise a category id (focus/health/...).
   const [filter, setFilter] = useState("all");
   const baseProductive = dailyData?.productive_seconds || 0;
@@ -104,6 +104,17 @@ export default function StatsBar({ dailyData, currentTimer, projects = [], onRec
             style={{ width: `${Math.min(displayScore, 100)}%`, backgroundColor: displayColor }}
           />
         </div>
+        {streak && streak.streak > 0 && (
+          <p
+            className="font-mono text-[10px] tracking-widest uppercase mt-2.5"
+            title={streak.todayEarned ? "Today already counts (1h+ on purpose)" : "Track 1h+ on purpose today to keep the streak"}
+            data-testid="streak-badge"
+          >
+            <span className={streak.todayEarned ? "text-[#FF8C00]" : "text-[#71717A]"}>
+              🔥 {streak.streak}-day streak{streak.todayEarned ? "" : " — at risk"}
+            </span>
+          </p>
+        )}
       </div>
 
       {/* stat cards */}

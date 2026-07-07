@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -13,8 +13,15 @@ import {
   CalendarClock,
   PanelLeftClose,
   PanelLeftOpen,
+  Download,
+  Upload,
+  Bell,
+  BellOff,
 } from "lucide-react";
+import { toast } from "sonner";
 import { API } from "@/App";
+import { exportAllData, importAllData } from "@/lib/dataExport";
+import { pushAvailable, isPushEnabled, enablePush, disablePush } from "@/lib/push";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const NAV_ITEMS = [
@@ -61,6 +68,84 @@ export default function AppShell({ children, user, activePage }) {
     setMobileMenuOpen(false);
   };
 
+  const importInputRef = useRef(null);
+
+  const [pushOn, setPushOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  useEffect(() => {
+    if (pushAvailable()) isPushEnabled().then(setPushOn);
+  }, []);
+
+  const togglePush = async () => {
+    if (pushBusy) return;
+    setPushBusy(true);
+    try {
+      if (pushOn) {
+        await disablePush();
+        setPushOn(false);
+        toast.success("Push nudges off");
+      } else {
+        await enablePush();
+        setPushOn(true);
+        toast.success("Push nudges on — evening reconcile + streak alerts");
+      }
+    } catch (err) {
+      toast.error(err.message || "Push setup failed");
+    }
+    setPushBusy(false);
+  };
+
+  const pushButton = (testPrefix) =>
+    pushAvailable() ? (
+      <button
+        onClick={togglePush}
+        disabled={pushBusy}
+        data-testid={`${testPrefix}-push-toggle`}
+        title={pushOn ? "Disable push nudges on this device" : "Get an evening reconcile nudge and streak-at-risk alerts, even with the app closed"}
+        className={`w-full flex items-center justify-center gap-2 py-2 font-mono text-[10px] uppercase tracking-widest transition-colors duration-75 disabled:opacity-50 ${
+          pushOn ? "text-[#00FF41] hover:text-[#00CC33]" : "text-[#52525B] hover:text-[#A1A1AA]"
+        }`}
+      >
+        {pushOn ? <Bell className="w-3 h-3" /> : <BellOff className="w-3 h-3" />}
+        {pushOn ? "Nudges on" : "Nudges off"}
+      </button>
+    ) : null;
+
+  const handleImportFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    if (!window.confirm("Importing replaces ALL current data (including cloud sync). Continue?")) return;
+    try {
+      await importAllData(file); // reloads the page on success
+    } catch (err) {
+      toast.error(err.message || "Import failed");
+    }
+  };
+
+  const dataButtons = (testPrefix) => (
+    <div className="flex items-center gap-1">
+      <button
+        onClick={exportAllData}
+        data-testid={`${testPrefix}-export-btn`}
+        title="Download all data as JSON"
+        className="flex-1 flex items-center justify-center gap-2 py-2 font-mono text-[10px] uppercase tracking-widest text-[#52525B] hover:text-[#00FF41] transition-colors duration-75"
+      >
+        <Download className="w-3 h-3" />
+        Export
+      </button>
+      <button
+        onClick={() => importInputRef.current?.click()}
+        data-testid={`${testPrefix}-import-btn`}
+        title="Restore from a JSON export (replaces all data)"
+        className="flex-1 flex items-center justify-center gap-2 py-2 font-mono text-[10px] uppercase tracking-widest text-[#52525B] hover:text-[#00FF41] transition-colors duration-75"
+      >
+        <Upload className="w-3 h-3" />
+        Import
+      </button>
+    </div>
+  );
+
   return (
     <div className="app-shell-bg min-h-screen bg-[#050505] flex flex-col md:flex-row">
       {/* Mobile Header */}
@@ -104,6 +189,10 @@ export default function AppShell({ children, user, activePage }) {
               );
             })}
             <div className="border-t border-[#1A1A1A] pt-4 mt-4">
+              <div className="px-4 mb-2">
+                {pushButton("mobile")}
+                {dataButtons("mobile")}
+              </div>
               <div className="flex items-center gap-3 px-4 mb-3">
                 <Avatar className="w-8 h-8">
                   <AvatarImage src={user?.picture} />
@@ -197,6 +286,8 @@ export default function AppShell({ children, user, activePage }) {
               </div>
             )}
           </div>
+          {!collapsed && pushButton("sidebar")}
+          {!collapsed && dataButtons("sidebar")}
           <button
             onClick={handleLogout}
             data-testid="logout-btn"
@@ -213,6 +304,15 @@ export default function AppShell({ children, user, activePage }) {
       <main className="flex-1 p-4 md:p-6 lg:p-10 overflow-auto min-w-0">
         {children}
       </main>
+
+      <input
+        ref={importInputRef}
+        type="file"
+        accept="application/json,.json"
+        onChange={handleImportFile}
+        className="hidden"
+        data-testid="import-file-input"
+      />
     </div>
   );
 }

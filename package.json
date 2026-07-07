@@ -1,0 +1,10 @@
+{
+  "name": "realitycheck-functions",
+  "private": true,
+  "type": "module",
+  "description": "Dependencies for the Vercel serverless functions in /api. The React app lives in /frontend with its own package.json.",
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest",
+    "web-push": "^3.6.7"
+  }
+}

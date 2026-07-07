@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Plus, ChevronDown, X } from "lucide-react";
 import { toast } from "sonner";
 import { API } from "@/App";
+import { localDayStr } from "@/lib/dates";
 import TaskSuggestionDropdown from "@/components/TaskSuggestionDropdown";
 
 /**
@@ -17,7 +18,7 @@ export default function LogPastTimeForm({ projects = [], suggestions = [], onLog
   const [showSuggest, setShowSuggest] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = localDayStr();
 
   const reset = () => {
     setDescription(""); setProjectId(""); setStart(""); setEnd("");

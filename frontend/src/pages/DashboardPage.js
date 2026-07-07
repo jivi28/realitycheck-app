@@ -11,7 +11,31 @@ import ProjectChip from "@/components/ProjectChip";
 import LogPastTimeForm from "@/components/LogPastTimeForm";
 import GoalCard from "@/components/GoalCard";
 import ReconcileSheet from "@/components/ReconcileSheet";
-import { GOALS_KEY, normalizeGoals, normalizeGoal, computePacing, computeGoalProgress, computeSubgoalProgress, isGoalActive, todayStr, formatGoalTime } from "@/lib/goals";
+import { readGoals, persistGoals as writeGoals, GOALS_REFRESH_EVENT, normalizeGoal, computePacing, computeGoalProgress, computeSubgoalProgress, isGoalActive, todayStr, formatGoalTime, completedSummary } from "@/lib/goals";
+import { computeStreak } from "@/lib/streak";
+import { localDayStr } from "@/lib/dates";
+import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+
+// Wraps one open goal so it can be dragged into a new priority order. Uses a
+// render-prop so the drag handle (attributes/listeners) is threaded into the
+// GoalCard's grip; completed goals render plain GoalCards outside any DndContext.
+function SortableGoalCard({ id, children }) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 20 : undefined,
+    position: "relative",
+  };
+  return (
+    <div ref={setNodeRef} style={style}>
+      {children({ attributes, listeners, setActivatorNodeRef })}
+    </div>
+  );
+}
 
 export default function DashboardPage({ user }) {
   const [currentTimer, setCurrentTimer] = useState(null);
@@ -21,9 +45,7 @@ export default function DashboardPage({ user }) {
   const [projects, setProjects] = useState([]);
   const [, setTick] = useState(0); // 1-second tick for real-time goal progress
 
-  const [goals, setGoals] = useState(() => {
-    try { return normalizeGoals(JSON.parse(localStorage.getItem(GOALS_KEY)) || []); } catch { return []; }
-  });
+  const [goals, setGoals] = useState(readGoals);
   const [showGoalForm, setShowGoalForm] = useState(false);
   const [newGoalLabel, setNewGoalLabel] = useState("");
   const [newGoalHours, setNewGoalHours] = useState("");
@@ -37,7 +59,7 @@ export default function DashboardPage({ user }) {
   const [breakResolve, setBreakResolve] = useState(null);
 
   const timerInputRef = useRef(null);
-  const today = new Date().toISOString().split("T")[0];
+  const today = localDayStr();
 
   // Re-render every second while timer is running so goal progress stays live
   useEffect(() => {
@@ -75,10 +97,22 @@ export default function DashboardPage({ user }) {
     }
   }, [today]);
 
+  // Refetch when the tab regains focus (browserApi also refreshes its cloud
+  // cache on visibility), plus a slow 5-minute safety interval — instead of
+  // the old blind 30s full refetch.
   useEffect(() => {
     fetchAll();
-    const interval = setInterval(fetchAll, 30000);
-    return () => clearInterval(interval);
+    const onVisible = () => {
+      if (!document.hidden) fetchAll();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    const interval = setInterval(fetchAll, 5 * 60 * 1000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      clearInterval(interval);
+    };
   }, [fetchAll]);
 
   const handleTimerStart = async (description, projectId) => {
@@ -192,14 +226,44 @@ export default function DashboardPage({ user }) {
 
   const persistGoals = (next) => {
     setGoals(next);
-    localStorage.setItem(GOALS_KEY, JSON.stringify(next));
+    writeGoals(next);
   };
+
+  // Re-read when the cloud replaced goals (edited on another device / by a friend).
+  useEffect(() => {
+    const onRefresh = () => setGoals(readGoals());
+    window.addEventListener(GOALS_REFRESH_EVENT, onRefresh);
+    return () => window.removeEventListener(GOALS_REFRESH_EVENT, onRefresh);
+  }, []);
 
   const saveGoals = (updated) => {
     goalsUndo.current.push(goals);
     if (goalsUndo.current.length > 50) goalsUndo.current.shift();
     setUndoDepth(goalsUndo.current.length);
     persistGoals(updated);
+  };
+
+  // Drag-to-reorder open goals into your own top-down priority. Completed goals
+  // keep their doneAt sort, so we just re-append them (their stored order is
+  // irrelevant — the render re-sorts them).
+  const reorderGoals = (activeId, overId) => {
+    if (activeId === overId) return;
+    const open = goals.filter((g) => !g.done);
+    const done = goals.filter((g) => g.done);
+    const from = open.findIndex((g) => g.id === activeId);
+    const to = open.findIndex((g) => g.id === overId);
+    if (from === -1 || to === -1) return;
+    saveGoals([...arrayMove(open, from, to), ...done]);
+  };
+
+  const dragSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleGoalDragEnd = (event) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) reorderGoals(active.id, over.id);
   };
 
   const undoGoals = () => {
@@ -241,6 +305,7 @@ export default function DashboardPage({ user }) {
         projectId: newGoalProjectId || null,
         carryOver: newGoalCarryOver,
         startDate: todayStr(),
+        startAt: new Date().toISOString(),
       }),
     ]);
     setNewGoalLabel(""); setNewGoalHours(""); setNewGoalProjectId(""); setNewGoalCarryOver(true); setShowGoalForm(false);
@@ -281,7 +346,7 @@ export default function DashboardPage({ user }) {
   const addSubgoal = (goalId, label, hours) =>
     mapGoal(goalId, (g) => ({
       ...g,
-      subgoals: [...g.subgoals, { id: `${Date.now()}_${g.subgoals.length}`, label, targetHours: hours, done: false, doneAt: null, doneSeconds: null, addedSeconds: 0 }],
+      subgoals: [...g.subgoals, { id: `${Date.now()}_${g.subgoals.length}`, label, targetHours: hours, done: false, doneAt: null, doneSeconds: null, addedSeconds: 0, startAt: new Date().toISOString() }],
     }));
   const deleteSubgoal = (goalId, subId) =>
     mapGoal(goalId, (g) => ({ ...g, subgoals: g.subgoals.filter((s) => s.id !== subId) }));
@@ -433,10 +498,12 @@ export default function DashboardPage({ user }) {
   const completedGoals = goals
     .filter((g) => g.done)
     .sort((a, b) => (b.doneAt || "").localeCompare(a.doneAt || ""));
-  const renderGoalCard = (goal) => (
+  const completedStats = completedSummary(goals);
+  const renderGoalCard = (goal, dragHandle = null) => (
     <GoalCard
       key={goal.id}
       goal={goal}
+      dragHandle={dragHandle}
       projects={projects}
       ctx={goalCtx}
       expanded={expandedGoals.has(goal.id)}
@@ -484,6 +551,29 @@ export default function DashboardPage({ user }) {
           suggestions={goalSuggestions}
         />
 
+        {/* First-run guide: shows only before anything has ever been tracked */}
+        {dailyData && !currentTimer && allEntries.length === 0 && (
+          <div className="bg-[#0A0A0A] border border-[#00FF41]/25 p-5" data-testid="onboarding-card">
+            <p className="font-mono text-[10px] text-[#00FF41] uppercase tracking-widest mb-3">
+              Getting started
+            </p>
+            <ol className="space-y-2.5 font-mono text-xs text-[#A1A1AA]">
+              <li className="flex gap-3">
+                <span className="text-[#00FF41] font-bold shrink-0">1.</span>
+                <span>Type what you're doing right now in the timer above and hit <span className="text-[#00FF41]">Start</span> — work or life, everything counts.</span>
+              </li>
+              <li className="flex gap-3">
+                <span className="text-[#00FF41] font-bold shrink-0">2.</span>
+                <span>Add a <span className="text-[#EDEDED]">goal</span> below with a time target so today has a finish line.</span>
+              </li>
+              <li className="flex gap-3">
+                <span className="text-[#00FF41] font-bold shrink-0">3.</span>
+                <span>Put sleep and fixed commitments in <span className="text-[#60A5FA]">Schedules</span> — your Reality Score only judges the hours you actually control.</span>
+              </li>
+            </ol>
+          </div>
+        )}
+
         {/* Goals */}
         <div className="bg-[#0A0A0A] border border-[#333] p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
@@ -523,13 +613,17 @@ export default function DashboardPage({ user }) {
             <p className="font-mono text-[11px] text-[#71717A]">No goals set. Add targets to track your progress.</p>
           )}
 
-          {openGoals.map((goal) => {
-            if (editingGoal?.id === goal.id) {
-              return (
-                <div key={goal.id} className="space-y-2 p-2 -mx-2 border border-[#222]">
-                  <input
-                    type="text"
-                    value={editingGoal.label}
+          <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={handleGoalDragEnd}>
+            <SortableContext items={openGoals.map((g) => g.id)} strategy={verticalListSortingStrategy}>
+              {openGoals.map((goal) => (
+                <SortableGoalCard key={goal.id} id={goal.id}>
+                  {(dragHandle) => {
+                    if (editingGoal?.id === goal.id) {
+                      return (
+                        <div className="space-y-2 p-2 -mx-2 border border-[#222]">
+                          <input
+                            type="text"
+                            value={editingGoal.label}
                     onChange={(e) => setEditingGoal({ ...editingGoal, label: e.target.value })}
                     autoFocus
                     className="w-full bg-transparent border-b border-[#333] focus:border-[#00FF41] py-1 font-mono text-xs text-[#EDEDED] outline-none transition-colors"
@@ -584,23 +678,34 @@ export default function DashboardPage({ user }) {
                     </button>
                   </div>
                 </div>
-              );
-            }
-            return renderGoalCard(goal);
-          })}
+                      );
+                    }
+                    return renderGoalCard(goal, dragHandle);
+                  }}
+                </SortableGoalCard>
+              ))}
+            </SortableContext>
+          </DndContext>
 
           {completedGoals.length > 0 && (
             <div className="pt-2 border-t border-[#1A1A1A]">
-              <button
-                onClick={() => setShowCompleted((v) => !v)}
-                data-testid="toggle-completed"
-                className="font-mono text-[10px] text-[#71717A] hover:text-[#EDEDED] uppercase tracking-wider transition-colors"
-              >
-                {showCompleted ? "▾" : "▸"} Completed ({completedGoals.length})
-              </button>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <button
+                  onClick={() => setShowCompleted((v) => !v)}
+                  data-testid="toggle-completed"
+                  className="font-mono text-[10px] text-[#71717A] hover:text-[#EDEDED] uppercase tracking-wider transition-colors"
+                >
+                  {showCompleted ? "▾" : "▸"} Completed ({completedGoals.length})
+                </button>
+                <span className="font-mono text-[10px] text-[#52525B] tabular-nums" data-testid="completed-summary">
+                  {completedStats.todayCount > 0 && <span className="text-[#00FF41]">{completedStats.todayCount} today</span>}
+                  {completedStats.todayCount > 0 && " · "}
+                  {completedStats.weekCount} this week · {formatGoalTime(completedStats.investedSeconds)} invested
+                </span>
+              </div>
               {showCompleted && (
                 <div className="space-y-3 mt-2">
-                  {completedGoals.map(renderGoalCard)}
+                  {completedGoals.map((g) => renderGoalCard(g))}
                 </div>
               )}
             </div>
@@ -713,7 +818,7 @@ export default function DashboardPage({ user }) {
         )}
 
         {/* Stats */}
-        <StatsBar dailyData={dailyData} currentTimer={currentTimer} projects={projects} onReconcile={() => setReconcileOpen(true)} />
+        <StatsBar dailyData={dailyData} currentTimer={currentTimer} projects={projects} streak={computeStreak(allEntries)} onReconcile={() => setReconcileOpen(true)} />
 
         {/* Forgot to track? Backfill a past entry (secondary action) */}
         <LogPastTimeForm projects={projects} suggestions={goalSuggestions} onLogged={fetchAll} />

@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Play, Pencil, X, Plus, Check, ChevronDown, ChevronRight, Target, RefreshCw, ArrowRight } from "lucide-react";
+import { Play, Pencil, X, Plus, Check, ChevronDown, ChevronRight, Target, RefreshCw, ArrowRight, GripVertical } from "lucide-react";
 import {
   computeGoalProgress,
   computeSubgoalProgress,
   isGoalActive,
   isSubgoalActive,
   formatGoalTime,
+  formatDoneStamp,
 } from "@/lib/goals";
 import { projectIconComp } from "@/lib/projectIcons";
 
@@ -79,6 +80,7 @@ export default function GoalCard({
   goal,
   projects,
   ctx,
+  dragHandle = null,
   expanded,
   onToggleExpand,
   onStartGoal,
@@ -132,6 +134,19 @@ export default function GoalCard({
       {/* Header row */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
+          {dragHandle && (
+            <button
+              ref={dragHandle.setActivatorNodeRef}
+              {...dragHandle.attributes}
+              {...dragHandle.listeners}
+              data-testid={`goal-drag-${goal.id}`}
+              title="Drag to reorder"
+              aria-label="Drag to reorder goal"
+              className="shrink-0 touch-none cursor-grab active:cursor-grabbing text-[#3f3f46] hover:text-[#A1A1AA] transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+            >
+              <GripVertical className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button
             onClick={() => onToggleExpand(goal.id)}
             data-testid={`goal-expand-${goal.id}`}
@@ -161,6 +176,11 @@ export default function GoalCard({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {goal.done && goal.doneAt && (
+            <span className="font-mono text-[9px] text-[#52525B] tabular-nums hidden sm:inline" title={`Completed ${formatDoneStamp(goal.doneAt)}`}>
+              done {formatDoneStamp(goal.doneAt)}
+            </span>
+          )}
           {tag && <span className="font-mono text-[9px] uppercase tracking-wider" style={{ color: tag.color }}>{tag.text}</span>}
           <span className={`font-mono text-[10px] tabular-nums ${active ? "text-[#00FF41]" : "text-[#71717A]"}`}>
             {formatGoalTime(prog.seconds)} / {goal.targetHours}h

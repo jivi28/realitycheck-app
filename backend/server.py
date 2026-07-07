@@ -33,6 +33,14 @@ logger = logging.getLogger(__name__)
 
 # ===== MODELS =====
 
+DEFAULT_PROJECTS = [
+    {"name": "Deep Work", "color": "#00FF41", "is_default": True},
+    {"name": "Study", "color": "#00CC33", "is_default": False},
+    {"name": "Coding", "color": "#33FF66", "is_default": False},
+    {"name": "Exercise", "color": "#FFD600", "is_default": False},
+    {"name": "Reading", "color": "#00BFFF", "is_default": False},
+]
+
 class UserOut(BaseModel):
     user_id: str
     email: str
@@ -118,6 +126,60 @@ class WeeklyAnalytics(BaseModel):
 
 # ===== AUTH HELPERS =====
 
+def _local_dev_auth_enabled() -> bool:
+    """Allow no-cookie local development when explicitly enabled or using local Mongo."""
+    configured = os.environ.get("LOCAL_DEV_AUTH")
+    if configured is not None:
+        return configured.lower() in {"1", "true", "yes", "on"}
+    return mongo_url.startswith("mongodb://localhost") or mongo_url.startswith("mongodb://127.0.0.1")
+
+
+def _get_cors_origins() -> List[str]:
+    origins = [origin.strip() for origin in os.environ.get("CORS_ORIGINS", "*").split(",") if origin.strip()]
+    if "*" in origins and _local_dev_auth_enabled():
+        return [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+    return origins
+
+
+async def _ensure_default_projects(user_id: str):
+    existing_count = await db.projects.count_documents({"user_id": user_id})
+    if existing_count:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    await db.projects.insert_many([
+        {
+            "project_id": f"proj_{uuid.uuid4().hex[:12]}",
+            "user_id": user_id,
+            "name": proj["name"],
+            "color": proj["color"],
+            "is_default": proj["is_default"],
+            "created_at": now,
+        }
+        for proj in DEFAULT_PROJECTS
+    ])
+
+
+async def _get_or_create_local_user() -> dict:
+    user_id = "local-user"
+    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user_doc:
+        user_doc = {
+            "user_id": user_id,
+            "email": "local@example.com",
+            "name": "Local User",
+            "picture": "",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.users.insert_one(user_doc.copy())
+    elif user_doc.get("picture") == "https://via.placeholder.com/150":
+        await db.users.update_one({"user_id": user_id}, {"$set": {"picture": ""}})
+        user_doc["picture"] = ""
+    await _ensure_default_projects(user_id)
+    return user_doc
+
 async def get_current_user(request: Request) -> dict:
     """Extract and verify user from session token."""
     session_token = request.cookies.get("session_token")
@@ -126,6 +188,8 @@ async def get_current_user(request: Request) -> dict:
         if auth_header and auth_header.startswith("Bearer "):
             session_token = auth_header.split(" ")[1]
     if not session_token:
+        if _local_dev_auth_enabled():
+            return await _get_or_create_local_user()
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     session_doc = await db.user_sessions.find_one(
@@ -190,14 +254,7 @@ async def create_session(request: Request, response: Response):
             "created_at": datetime.now(timezone.utc).isoformat()
         })
         # Create default projects for new user
-        default_projects = [
-            {"name": "Deep Work", "color": "#00FF41", "is_default": True},
-            {"name": "Study", "color": "#00CC33", "is_default": False},
-            {"name": "Coding", "color": "#33FF66", "is_default": False},
-            {"name": "Exercise", "color": "#FFD600", "is_default": False},
-            {"name": "Reading", "color": "#00BFFF", "is_default": False},
-        ]
-        for proj in default_projects:
+        for proj in DEFAULT_PROJECTS:
             await db.projects.insert_one({
                 "project_id": f"proj_{uuid.uuid4().hex[:12]}",
                 "user_id": user_id,
@@ -868,8 +925,6 @@ def _audio_suffix_for_content_type(content_type: Optional[str]) -> str:
 
 @api_router.post("/voice/transcribe")
 async def transcribe_voice(audio: UploadFile = File(...), user: dict = Depends(get_current_user)):
-    from emergentintegrations.llm.openai import OpenAISpeechToText
-
     api_key = os.environ.get("EMERGENT_LLM_KEY")
     if not api_key:
         raise HTTPException(status_code=500, detail="LLM key not configured")
@@ -888,17 +943,34 @@ async def transcribe_voice(audio: UploadFile = File(...), user: dict = Depends(g
             tmp.write(content)
             tmp_path = tmp.name
 
-        stt = OpenAISpeechToText(api_key=api_key)
-        with open(tmp_path, "rb") as f:
-            response = await stt.transcribe(
-                file=f,
-                model="whisper-1",
-                response_format="json",
-                language="en",
-                prompt="Time tracking voice command. Examples: start studying biology, stop task, start coding, start deep work session."
-            )
+        prompt = "Time tracking voice command. Examples: start studying biology, stop task, start coding, start deep work session."
+        try:
+            from emergentintegrations.llm.openai import OpenAISpeechToText
 
-        text = response.text.strip() if response and response.text else ""
+            stt = OpenAISpeechToText(api_key=api_key)
+            with open(tmp_path, "rb") as f:
+                response = await stt.transcribe(
+                    file=f,
+                    model="whisper-1",
+                    response_format="json",
+                    language="en",
+                    prompt=prompt
+                )
+            text = response.text.strip() if response and response.text else ""
+        except ModuleNotFoundError:
+            from openai import AsyncOpenAI
+
+            client = AsyncOpenAI(api_key=api_key)
+            with open(tmp_path, "rb") as f:
+                response = await client.audio.transcriptions.create(
+                    file=f,
+                    model="whisper-1",
+                    response_format="json",
+                    language="en",
+                    prompt=prompt
+                )
+            text = response.text.strip() if response and getattr(response, "text", None) else ""
+
         return {"text": text}
     except HTTPException:
         raise
@@ -1004,14 +1076,74 @@ def _format_weekly_prompt(week_data: list, totals: dict) -> str:
     return "\n".join(lines)
 
 
+def _generate_local_reality_report(week_data: list, totals: dict) -> str:
+    """Generate a deterministic report when hosted LLM integrations are unavailable locally."""
+    productive = totals["productive"]
+    scheduled = totals["scheduled"]
+    unaccounted = totals["unaccounted"]
+    tracked_days = len(week_data)
+    zero_days = [d["day"] for d in week_data if d["productive_hours"] <= 0]
+    fragmented_days = [
+        d["day"]
+        for d in week_data
+        if d["num_task_sessions"] and d["longest_focus_min"] < 45
+    ]
+    ratio = unaccounted / productive if productive > 0 else None
+
+    lines = [
+        "## Reality Check",
+        "",
+        f"You logged **{productive:.1f}h** of actual productive work across {tracked_days} tracked day{'s' if tracked_days != 1 else ''}. Scheduled time was **{scheduled:.1f}h**. Unaccounted time was **{unaccounted:.1f}h**.",
+        "",
+        "## The Numbers",
+        "",
+        f"- Productive work: {productive:.1f}h",
+        f"- Scheduled/committed time: {scheduled:.1f}h",
+        f"- Unaccounted time: {unaccounted:.1f}h",
+    ]
+
+    if ratio is None:
+        lines.append("- Unaccounted/productive ratio: undefined, because productive time was 0h.")
+    else:
+        lines.append(f"- Unaccounted/productive ratio: {ratio:.1f}:1")
+
+    if zero_days:
+        lines.extend([
+            "",
+            "## Pattern",
+            "",
+            f"Zero productive hours on: {', '.join(zero_days)}. Scheduled blocks do not count as work; they are just time already spoken for.",
+        ])
+    elif fragmented_days:
+        lines.extend([
+            "",
+            "## Pattern",
+            "",
+            f"Focus looked fragmented on: {', '.join(fragmented_days)}. Longest sessions under 45 minutes usually mean attention kept getting reset.",
+        ])
+    else:
+        lines.extend([
+            "",
+            "## Pattern",
+            "",
+            "You did log real work, but the useful question is whether the logged work matches what you believed you did.",
+        ])
+
+    lines.extend([
+        "",
+        "## Next Moves",
+        "",
+        "- Start the timer before the task begins, not after you already feel productive.",
+        "- Add schedules for sleep, lectures, gym, and fixed commitments so gaps stay honest.",
+        "- Review unaccounted time daily; if it beats productive time, the day was mostly drift.",
+    ])
+    return "\n".join(lines)
+
+
 @api_router.post("/reports/weekly")
 async def generate_weekly_report(user: dict = Depends(get_current_user)):
-    from emergentintegrations.llm.chat import LlmChat, UserMessage
-
     user_id = user["user_id"]
     api_key = os.environ.get("EMERGENT_LLM_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="LLM key not configured")
 
     today = datetime.now(timezone.utc).date()
     start_of_week = today - timedelta(days=today.weekday())
@@ -1038,22 +1170,29 @@ Rules:
 - Keep tone sharp, direct, almost sardonic. No fluff, no "great job!".
 - Use short punchy paragraphs. Format with markdown headers and bullet points."""
 
-    chat = LlmChat(
-        api_key=api_key,
-        session_id=f"report_{user_id}_{today.isoformat()}",
-        system_message=system_message,
-    )
-    chat.with_model("openai", "gpt-4.1")
+    response = None
+    if api_key:
+        try:
+            from emergentintegrations.llm.chat import LlmChat, UserMessage
 
-    message = UserMessage(
-        text=f"Analyze this week's time tracking data and deliver a brutal reality check:\n{data_summary}"
-    )
+            chat = LlmChat(
+                api_key=api_key,
+                session_id=f"report_{user_id}_{today.isoformat()}",
+                system_message=system_message,
+            )
+            chat.with_model("openai", "gpt-4.1")
 
-    try:
-        response = await chat.send_message(message)
-    except Exception as e:
-        logger.error(f"AI report generation failed: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate report")
+            message = UserMessage(
+                text=f"Analyze this week's time tracking data and deliver a brutal reality check:\n{data_summary}"
+            )
+            response = await chat.send_message(message)
+        except ModuleNotFoundError:
+            logger.info("Emergent LLM integration unavailable locally; using deterministic report fallback.")
+        except Exception as e:
+            logger.error(f"AI report generation failed, using fallback: {e}")
+
+    if not response:
+        response = _generate_local_reality_report(week_data, totals)
 
     report = {
         "report_id": f"report_{uuid.uuid4().hex[:12]}",
@@ -1082,13 +1221,23 @@ async def get_weekly_reports(user: dict = Depends(get_current_user)):
     return reports
 
 
+@api_router.delete("/reports/weekly/{report_id}")
+async def delete_weekly_report(report_id: str, user: dict = Depends(get_current_user)):
+    result = await db.ai_reports.delete_one(
+        {"report_id": report_id, "user_id": user["user_id"]}
+    )
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return {"message": "Deleted"}
+
+
 # Include the router and middleware
 app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=_get_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )

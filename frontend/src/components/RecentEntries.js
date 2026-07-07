@@ -3,7 +3,7 @@ import { API } from "@/App";
 import { toast } from "sonner";
 import { getEntryColor } from "@/lib/entryColors";
 
-export default function RecentEntries({ entries, onRefresh }) {
+export default function RecentEntries({ entries, onRefresh, title = "Recent Activity", emptyText = "No activity today" }) {
   const formatTime = (isoStr) => {
     if (!isoStr) return "--:--";
     const d = new Date(isoStr);
@@ -38,13 +38,13 @@ export default function RecentEntries({ entries, onRefresh }) {
   return (
     <div className="bg-[#0A0A0A] border border-[#333] p-6" data-testid="recent-entries">
       <p className="font-mono text-xs text-[#52525B] uppercase tracking-widest mb-4">
-        Recent Activity
+        {title}
       </p>
 
       {entries.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-32">
           <Clock className="w-6 h-6 text-[#262626] mb-2" />
-          <p className="font-mono text-xs text-[#333]">No activity today</p>
+          <p className="font-mono text-xs text-[#333]">{emptyText}</p>
         </div>
       ) : (
         <div className="space-y-1 max-h-[400px] overflow-y-auto">

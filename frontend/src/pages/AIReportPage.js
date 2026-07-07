@@ -1,15 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { API } from "@/App";
 import AppShell from "@/components/AppShell";
-import { Brain, Loader2, RefreshCw } from "lucide-react";
+import { Brain, Check, Loader2, RefreshCw, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AIReportPage({ user }) {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [deletingReportId, setDeletingReportId] = useState(null);
+  const [pendingDeleteReportId, setPendingDeleteReportId] = useState(null);
   const [displayText, setDisplayText] = useState("");
   const [activeReport, setActiveReport] = useState(null);
+  const typewriterRef = useRef(null);
 
   const fetchReports = async () => {
     setLoading(true);
@@ -29,6 +32,7 @@ export default function AIReportPage({ user }) {
 
   useEffect(() => {
     fetchReports();
+    return () => { if (typewriterRef.current) clearInterval(typewriterRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -49,12 +53,15 @@ export default function AIReportPage({ user }) {
       // Typewriter effect
       const content = report.content;
       let i = 0;
-      const interval = setInterval(() => {
-        if (i <= content.length) {
+      if (typewriterRef.current) clearInterval(typewriterRef.current);
+      typewriterRef.current = setInterval(() => {
+        i += 3;
+        if (i < content.length) {
           setDisplayText(content.substring(0, i));
-          i += 3;
         } else {
-          clearInterval(interval);
+          setDisplayText(content);
+          clearInterval(typewriterRef.current);
+          typewriterRef.current = null;
         }
       }, 10);
       toast.success("Reality check generated");
@@ -66,8 +73,39 @@ export default function AIReportPage({ user }) {
   };
 
   const selectReport = (report) => {
+    setPendingDeleteReportId(null);
     setActiveReport(report);
     setDisplayText(report.content);
+  };
+
+  const deleteReport = async (reportId) => {
+    const reportToDelete = reports.find((r) => r.report_id === reportId);
+    if (!reportToDelete || deletingReportId) return;
+
+    setDeletingReportId(reportId);
+    try {
+      const res = await fetch(`${API}/reports/weekly/${reportId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Failed to delete report");
+      }
+
+      const nextReports = reports.filter((r) => r.report_id !== reportId);
+      setReports(nextReports);
+      if (activeReport?.report_id === reportId) {
+        const nextActive = nextReports[0] || null;
+        setActiveReport(nextActive);
+        setDisplayText(nextActive?.content || "");
+      }
+      setPendingDeleteReportId(null);
+      toast.success("Report deleted");
+    } catch (err) {
+      toast.error(err.message || "Failed to delete report");
+    }
+    setDeletingReportId(null);
   };
 
   const formatDate = (dateStr) => {
@@ -124,37 +162,100 @@ export default function AIReportPage({ user }) {
               </p>
             )}
             {reports.map((r) => (
-              <button
+              <div
                 key={r.report_id}
-                onClick={() => selectReport(r)}
-                data-testid={`report-item-${r.report_id}`}
-                className={`min-w-[200px] lg:min-w-0 w-full text-left p-3 border transition-colors duration-75 shrink-0 ${
+                className={`group relative min-w-[220px] lg:min-w-0 w-full border transition-colors duration-75 shrink-0 ${
                   activeReport?.report_id === r.report_id
                     ? "border-[#00FF41] bg-[#0A0A0A]"
                     : "border-[#222] bg-transparent hover:border-[#444]"
                 }`}
               >
-                <p className="font-mono text-xs text-[#A1A1AA]">
-                  Week of {r.week_start}
-                </p>
-                <p className="font-mono text-[10px] text-[#52525B] mt-1">
-                  {formatDate(r.generated_at)}
-                </p>
-                {r.data_summary && (
-                  <p className="font-mono text-[10px] text-[#00FF41] mt-1">
-                    {r.data_summary.total_productive_hours}h productive
-                    {typeof r.data_summary.total_scheduled_hours === "number" && (
-                      <span className="text-[#60A5FA]"> · {r.data_summary.total_scheduled_hours}h scheduled</span>
-                    )}
+                <button
+                  onClick={() => selectReport(r)}
+                  data-testid={`report-item-${r.report_id}`}
+                  className="w-full text-left p-3 pr-10"
+                >
+                  <p className="font-mono text-xs text-[#A1A1AA]">
+                    Week of {r.week_start}
                   </p>
+                  <p className="font-mono text-[10px] text-[#52525B] mt-1">
+                    {formatDate(r.generated_at)}
+                  </p>
+                  {r.data_summary && (
+                    <p className="font-mono text-[10px] text-[#00FF41] mt-1">
+                      {r.data_summary.total_productive_hours}h productive
+                      {typeof r.data_summary.total_scheduled_hours === "number" && (
+                        <span className="text-[#60A5FA]"> · {r.data_summary.total_scheduled_hours}h scheduled</span>
+                      )}
+                    </p>
+                  )}
+                </button>
+                {pendingDeleteReportId === r.report_id ? (
+                  <div className="absolute right-2 top-2 flex items-center gap-1 bg-[#050505] border border-[#333] p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => deleteReport(r.report_id)}
+                      disabled={deletingReportId === r.report_id}
+                      aria-label={`Confirm delete report from ${r.week_start}`}
+                      title="Confirm delete"
+                      data-testid={`confirm-delete-report-${r.report_id}`}
+                      className="p-1 text-[#FF003C] hover:bg-[#FF003C]/10 transition-colors duration-75 disabled:opacity-50"
+                    >
+                      {deletingReportId === r.report_id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingDeleteReportId(null)}
+                      disabled={deletingReportId === r.report_id}
+                      aria-label="Cancel delete"
+                      title="Cancel"
+                      data-testid={`cancel-delete-report-${r.report_id}`}
+                      className="p-1 text-[#A1A1AA] hover:text-[#EDEDED] hover:bg-[#1A1A1A] transition-colors duration-75 disabled:opacity-50"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setPendingDeleteReportId(r.report_id)}
+                    disabled={!!deletingReportId}
+                    aria-label={`Delete report from ${r.week_start}`}
+                    title="Delete report"
+                    data-testid={`delete-report-${r.report_id}`}
+                    className="absolute right-2 top-2 p-1.5 text-[#52525B] hover:text-[#FF003C] hover:bg-[#FF003C]/10 transition-colors duration-75 disabled:opacity-50"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 )}
-              </button>
+              </div>
             ))}
             </div>
           </div>
 
           {/* Report Content */}
           <div className="lg:col-span-3 bg-[#0A0A0A] border border-[#333] p-4 md:p-8 min-h-[300px] md:min-h-[400px] relative order-1 lg:order-2" data-testid="report-content">
+            {activeReport && !generating && (
+              <span
+                data-testid="report-source-badge"
+                title={
+                  activeReport.source === "ai"
+                    ? "Generated by Claude from your week's data"
+                    : "Data-driven template — set ANTHROPIC_API_KEY on Vercel for real AI reports"
+                }
+                className={`absolute right-3 top-3 font-mono text-[9px] uppercase tracking-widest border px-1.5 py-0.5 ${
+                  activeReport.source === "ai"
+                    ? "text-[#00FF41] border-[#00FF41]/40"
+                    : "text-[#52525B] border-[#333]"
+                }`}
+              >
+                {activeReport.source === "ai" ? "AI" : "Offline summary"}
+              </span>
+            )}
             {generating && (
               <div className="flex items-center gap-2 mb-4">
                 <Loader2 className="w-4 h-4 text-[#00FF41] animate-spin" />

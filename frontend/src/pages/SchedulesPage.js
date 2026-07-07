@@ -34,12 +34,30 @@ export default function SchedulesPage({ user }) {
     );
   };
 
-  const createSchedule = async () => {
+  const startEdit = (sched) => {
+    setEditingId(sched.schedule_id);
+    setTitle(sched.title);
+    setStartTime(sched.start_time);
+    setEndTime(sched.end_time);
+    setSelectedDays(sched.day_of_week || []);
+    setColor(sched.color || PRESET_COLORS[0]);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setTitle("");
+    setStartTime("23:00");
+    setEndTime("07:00");
+    setSelectedDays([0, 1, 2, 3, 4, 5, 6]);
+    setColor(PRESET_COLORS[0]);
+  };
+
+  const saveSchedule = async () => {
     if (!title.trim()) { toast.error("Title required"); return; }
     if (selectedDays.length === 0) { toast.error("Select at least one day"); return; }
     try {
-      const res = await fetch(`${API}/schedules`, {
-        method: "POST",
+      const res = await fetch(editingId ? `${API}/schedules/${editingId}` : `${API}/schedules`, {
+        method: editingId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
@@ -51,11 +69,11 @@ export default function SchedulesPage({ user }) {
         }),
       });
       if (!res.ok) throw new Error("Failed");
-      setTitle("");
-      toast.success("Schedule created");
+      toast.success(editingId ? "Schedule updated" : "Schedule created");
+      cancelEdit();
       fetchSchedules();
     } catch (err) {
-      toast.error("Failed to create schedule");
+      toast.error(editingId ? "Failed to update schedule" : "Failed to create schedule");
     }
   };
 
@@ -88,7 +106,7 @@ export default function SchedulesPage({ user }) {
         {/* Create form */}
         <div className="bg-[#0A0A0A] border border-[#333] p-4 md:p-6 space-y-4" data-testid="create-schedule-form">
           <p className="font-mono text-[10px] text-[#52525B] uppercase tracking-widest">
-            New Schedule
+            {editingId ? "Edit Schedule" : "New Schedule"}
           </p>
 
           <input
@@ -156,14 +174,26 @@ export default function SchedulesPage({ user }) {
                 ))}
               </div>
             </div>
-            <button
-              onClick={createSchedule}
-              data-testid="create-schedule-btn"
-              className="flex items-center gap-2 bg-[#60A5FA] text-black font-mono text-xs font-bold uppercase tracking-wider px-4 py-2.5 hover:bg-[#3B82F6] transition-colors ml-auto"
-            >
-              <Plus className="w-4 h-4" />
-              Add
-            </button>
+            <div className="flex items-center gap-2 ml-auto">
+              {editingId && (
+                <button
+                  onClick={cancelEdit}
+                  data-testid="cancel-edit-schedule-btn"
+                  className="flex items-center gap-2 border border-[#333] text-[#A1A1AA] font-mono text-xs font-bold uppercase tracking-wider px-4 py-2.5 hover:border-[#555] hover:text-[#EDEDED] transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                  Cancel
+                </button>
+              )}
+              <button
+                onClick={saveSchedule}
+                data-testid="create-schedule-btn"
+                className="flex items-center gap-2 bg-[#60A5FA] text-black font-mono text-xs font-bold uppercase tracking-wider px-4 py-2.5 hover:bg-[#3B82F6] transition-colors"
+              >
+                {editingId ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                {editingId ? "Save" : "Add"}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -190,6 +220,14 @@ export default function SchedulesPage({ user }) {
                   </span>
                 </div>
               </div>
+              <button
+                onClick={() => startEdit(sched)}
+                data-testid={`edit-schedule-${sched.schedule_id}`}
+                title="Edit schedule"
+                className="opacity-0 group-hover:opacity-100 text-[#666] hover:text-[#60A5FA] transition-opacity"
+              >
+                <Edit2 className="w-4 h-4" />
+              </button>
               <button
                 onClick={() => deleteSchedule(sched.schedule_id)}
                 data-testid={`delete-schedule-${sched.schedule_id}`}

@@ -1,13 +1,22 @@
 import { useState, useEffect } from "react";
 import { API } from "@/App";
 import AppShell from "@/components/AppShell";
-import { Trash2, Clock, Calendar } from "lucide-react";
+import { Trash2, Clock, Calendar, Pencil, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { getEntryColor } from "@/lib/entryColors";
+
+// ISO ↔ <input type="datetime-local"> (which speaks local wall-clock time)
+const toLocalInput = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
 
 export default function HistoryPage({ user }) {
   const [entries, setEntries] = useState([]);
   const [dateFilter, setDateFilter] = useState("");
+  const [editing, setEditing] = useState(null); // { entry_id, description, start, end }
 
   const fetchEntries = async () => {
     try {
@@ -26,6 +35,46 @@ export default function HistoryPage({ user }) {
     fetchEntries();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateFilter]);
+
+  const startEdit = (entry) => {
+    setEditing({
+      entry_id: entry.entry_id,
+      description: entry.description,
+      start: toLocalInput(entry.start_time),
+      end: toLocalInput(entry.end_time),
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    const start = new Date(editing.start);
+    const end = new Date(editing.end);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+      toast.error("End time must be after start time");
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/entries/${editing.entry_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          description: editing.description,
+          start_time: start.toISOString(),
+          end_time: end.toISOString(),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Failed to update entry");
+      }
+      toast.success("Entry updated");
+      setEditing(null);
+      fetchEntries();
+    } catch (err) {
+      toast.error(err.message || "Failed to update entry");
+    }
+  };
 
   const deleteEntry = async (entryId) => {
     try {
@@ -130,7 +179,55 @@ export default function HistoryPage({ user }) {
             </div>
 
             <div className="space-y-1">
-              {dayEntries.map((entry) => (
+              {dayEntries.map((entry) =>
+                editing?.entry_id === entry.entry_id ? (
+                  <div
+                    key={entry.entry_id}
+                    data-testid={`entry-edit-${entry.entry_id}`}
+                    className="p-3 border border-[#00FF41]/40 bg-[#0A0A0A] space-y-2"
+                  >
+                    <input
+                      type="text"
+                      value={editing.description}
+                      onChange={(e) => setEditing({ ...editing, description: e.target.value })}
+                      data-testid="edit-entry-description"
+                      className="w-full bg-transparent border-b border-[#333] focus:border-[#00FF41] px-0 py-1 font-mono text-sm text-[#EDEDED] outline-none transition-colors"
+                    />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="datetime-local"
+                        value={editing.start}
+                        onChange={(e) => setEditing({ ...editing, start: e.target.value })}
+                        data-testid="edit-entry-start"
+                        className="bg-transparent border border-[#333] px-2 py-1.5 font-mono text-xs text-[#A1A1AA] outline-none focus:border-[#00FF41]"
+                      />
+                      <span className="font-mono text-xs text-[#52525B]">→</span>
+                      <input
+                        type="datetime-local"
+                        value={editing.end}
+                        onChange={(e) => setEditing({ ...editing, end: e.target.value })}
+                        data-testid="edit-entry-end"
+                        className="bg-transparent border border-[#333] px-2 py-1.5 font-mono text-xs text-[#A1A1AA] outline-none focus:border-[#00FF41]"
+                      />
+                      <div className="flex items-center gap-1 ml-auto">
+                        <button
+                          onClick={saveEdit}
+                          data-testid="save-entry-edit"
+                          className="flex items-center gap-1 bg-[#00FF41] text-black font-mono text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 hover:bg-[#00CC33] transition-colors"
+                        >
+                          <Check className="w-3 h-3" /> Save
+                        </button>
+                        <button
+                          onClick={() => setEditing(null)}
+                          data-testid="cancel-entry-edit"
+                          className="flex items-center gap-1 border border-[#333] text-[#A1A1AA] font-mono text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 hover:border-[#555] transition-colors"
+                        >
+                          <X className="w-3 h-3" /> Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
                 <div
                   key={entry.entry_id}
                   data-testid={`entry-${entry.entry_id}`}
@@ -177,6 +274,16 @@ export default function HistoryPage({ user }) {
                     >
                       {formatDuration(entry.duration)}
                     </div>
+                    {!entry.is_break && entry.entry_type !== "scheduled" && !entry.is_running && (
+                      <button
+                        onClick={() => startEdit(entry)}
+                        data-testid={`edit-entry-${entry.entry_id}`}
+                        title="Edit entry"
+                        className="opacity-0 group-hover:opacity-100 text-[#333] hover:text-[#00FF41] transition-opacity duration-75"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     {!entry.is_break && (
                       <button
                         onClick={() => deleteEntry(entry.entry_id)}
@@ -188,7 +295,8 @@ export default function HistoryPage({ user }) {
                     )}
                   </div>
                 </div>
-              ))}
+                )
+              )}
             </div>
           </div>
         ))}

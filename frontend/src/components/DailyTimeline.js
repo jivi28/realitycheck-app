@@ -1,11 +1,11 @@
 import { getEntryColor, getEntryLabel } from "@/lib/entryColors";
 
-export default function DailyTimeline({ entries }) {
+export default function DailyTimeline({ entries, title = "Today's Timeline" }) {
   if (!entries || entries.length === 0) {
     return (
       <div className="bg-[#0A0A0A] border border-[#333] p-6" data-testid="daily-timeline">
         <p className="font-mono text-xs text-[#71717A] uppercase tracking-widest mb-4">
-          Today's Timeline
+          {title}
         </p>
         <div className="flex items-center justify-center h-40">
           <p className="font-mono text-sm text-[#52525B]">
@@ -46,7 +46,7 @@ export default function DailyTimeline({ entries }) {
     <div className="bg-[#0A0A0A] border border-[#333] p-4 md:p-6" data-testid="daily-timeline">
       <div className="flex items-center justify-between mb-4">
         <p className="font-mono text-xs text-[#71717A] uppercase tracking-widest">
-          Today's Timeline
+          {title}
         </p>
         <p className="font-mono text-[10px] text-[#71717A] tabular-nums">
           {formatDuration(totalDuration)} tracked

@@ -11,7 +11,7 @@ import { formatGoalTime } from "@/lib/goals";
 // untracked time was actually work.
 const RECHARGE = CATEGORIES.find((c) => c.id === "rest");
 const PRODUCTIVE = CATEGORIES.filter((c) => c.id !== "rest"); // focus, health, social, care
-const BREAK_CHIPS = [RECHARGE, NOT_PURPOSEFUL];
+const BREAK_CHIPS = [NOT_PURPOSEFUL, RECHARGE]; // Drift leads — the honest default
 const GAP_CHIPS = [RECHARGE, NOT_PURPOSEFUL, ...PRODUCTIVE];
 
 /**
@@ -27,7 +27,9 @@ const GAP_CHIPS = [RECHARGE, NOT_PURPOSEFUL, ...PRODUCTIVE];
 export default function ReconcileSheet({ open, awaySeconds, gapStart, gapEnd, onClose, onLogged, mode = "gap", replaceEntryId = null }) {
   const isBreakMode = mode === "break";
   const CHIPS = isBreakMode ? BREAK_CHIPS : GAP_CHIPS;
-  const [selected, setSelected] = useState(null); // single category id
+  // Break returns default to Drift (the honest, more-likely outcome) so the sheet
+  // is one confident tap; gap mode starts unselected.
+  const [selected, setSelected] = useState(isBreakMode ? NOT_PURPOSEFUL.id : null); // single category id
   const [note, setNote] = useState("");
   const [showNote, setShowNote] = useState(false);
   const [splitMode, setSplitMode] = useState(false);
@@ -38,13 +40,13 @@ export default function ReconcileSheet({ open, awaySeconds, gapStart, gapEnd, on
 
   useEffect(() => {
     if (open) {
-      setSelected(null);
+      setSelected(isBreakMode ? NOT_PURPOSEFUL.id : null);
       setNote("");
       setShowNote(false);
       setSplitMode(false);
       setParts([]);
     }
-  }, [open, gapStart]);
+  }, [open, gapStart, isBreakMode]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape" && !submitting) onClose(); };
@@ -150,7 +152,7 @@ export default function ReconcileSheet({ open, awaySeconds, gapStart, gapEnd, on
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="font-mono text-[10px] text-[#71717A] uppercase tracking-widest">
-              {isBreakMode ? "Account for your break" : "Account for your time"}
+              {isBreakMode ? "Be honest" : "Account for your time"}
             </p>
             <p className="font-heading text-lg font-bold text-[#EDEDED] mt-0.5">
               {isBreakMode ? "On a break for" : "You were away"} {formatGoalTime(awaySeconds)}
@@ -158,7 +160,7 @@ export default function ReconcileSheet({ open, awaySeconds, gapStart, gapEnd, on
             <p className="font-mono text-[10px] text-[#52525B] mt-0.5">
               {splitMode
                 ? "Set how long each thing took."
-                : isBreakMode ? "Recharge or drift? Pick one." : "What were you doing? Pick one."}
+                : isBreakMode ? "Did you drift, or did you actually recharge?" : "What were you doing? Pick one."}
             </p>
           </div>
           <button onClick={onClose} className="text-[#52525B] hover:text-[#EDEDED] transition-colors shrink-0" title="Dismiss">
