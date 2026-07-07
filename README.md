@@ -2,7 +2,7 @@
 
 Terminal-styled personal time tracker: track **all** your time (work + life), reconcile untracked gaps honestly, and score your day against a 16-hour awake budget. Deployed on Vercel (`realitycheck-app` and the shared `realitycheck-friends`).
 
-The app is client-side (React, `frontend/`) with a mock API served from localStorage (`frontend/src/lib/browserApi.js`), optional per-record Supabase sync, and two Vercel serverless functions (`api/`): real AI weekly reports (Claude) and web-push nudges.
+The app is client-side (React, `frontend/`) with a mock API served from localStorage (`frontend/src/lib/browserApi.js`), optional per-record Supabase sync, and two Vercel serverless functions (`api/`): real AI weekly reports (Gemini Flash) and web-push nudges.
 
 ## Development
 
@@ -25,7 +25,8 @@ Optional: set `REACT_APP_WORKSPACE` (build-time, per Vercel project) to separate
 
 | Variable | Side | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | server | Real AI weekly reports (`api/generate-report.js`, `claude-sonnet-5`). Without it the report page falls back to the local template, labeled "offline summary". |
+| `GEMINI_API_KEY` | server | Real AI weekly reports (`api/generate-report.js`, `gemini-3-flash-preview` by default). Without it the report page falls back to the local template, labeled "offline summary". |
+| `GEMINI_MODEL` | server | Optional override for the report model. |
 | `SUPABASE_URL`, `SUPABASE_KEY` | server | Same values as the `REACT_APP_SUPABASE_*` vars — used by the push cron to read entries/subscriptions. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_CONTACT` | server | Web push signing (see `.env.push.local`, not committed). `VAPID_CONTACT` is a `mailto:` address. |
 | `REACT_APP_VAPID_PUBLIC_KEY` | build | Same public key, exposed to the frontend subscribe flow. |

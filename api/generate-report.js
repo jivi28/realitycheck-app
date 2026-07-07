@@ -1,12 +1,11 @@
 /**
  * Vercel serverless function: generate a weekly "reality check" report with
- * Claude. The frontend posts the already-computed data_summary; if this
- * endpoint is unavailable (no ANTHROPIC_API_KEY, network down), the app falls
+ * Gemini Flash. The frontend posts the already-computed data_summary; if this
+ * endpoint is unavailable (no GEMINI_API_KEY, network down), the app falls
  * back to its local template and labels the report accordingly.
  *
- * Requires the ANTHROPIC_API_KEY env var in the Vercel project settings.
+ * Requires the GEMINI_API_KEY env var in the Vercel project settings.
  */
-import Anthropic from "@anthropic-ai/sdk";
 
 // The in-app renderer supports ONLY: "# ", "## ", "### ", "- " lines and
 // **bold** — the prompt constrains output to that subset.
@@ -29,8 +28,8 @@ export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ detail: "Method not allowed" });
   }
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return res.status(503).json({ detail: "AI reports not configured (missing ANTHROPIC_API_KEY)" });
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(503).json({ detail: "AI reports not configured (missing GEMINI_API_KEY)" });
   }
   const summary = req.body?.data_summary;
   if (!summary || typeof summary !== "object") {
@@ -38,32 +37,52 @@ export default async function handler(req, res) {
   }
 
   try {
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model: "claude-sonnet-5",
-      max_tokens: 4000,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: `Here is my week of time-tracking data:\n${JSON.stringify(summary)}`,
+    const model = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": process.env.GEMINI_API_KEY,
         },
-      ],
-    });
-    if (response.stop_reason === "refusal") {
-      return res.status(502).json({ detail: "Model declined the request" });
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: `Here is my week of time-tracking data:\n${JSON.stringify(summary)}` }],
+            },
+          ],
+          generationConfig: {
+            maxOutputTokens: 4000,
+          },
+        }),
+      }
+    );
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      console.error("generate-report failed:", response.status, body.slice(0, 300));
+      return res.status(response.status === 429 ? 429 : 502).json({ detail: "AI generation failed" });
     }
-    const text = response.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
+    const data = await response.json();
+    const text = (data.candidates?.[0]?.content?.parts || [])
+      .map((part) => part.text || "")
       .join("\n")
       .trim();
+    const finishReason = data.candidates?.[0]?.finishReason;
+    if (finishReason === "SAFETY" || finishReason === "RECITATION") {
+      return res.status(502).json({ detail: "Model declined the request" });
+    }
     if (!text) {
       return res.status(502).json({ detail: "Empty model response" });
     }
-    return res.status(200).json({ content: text, model: response.model });
+    return res.status(200).json({
+      content: text,
+      model,
+    });
   } catch (err) {
-    console.error("generate-report failed:", err?.status, err?.message);
-    return res.status(err?.status === 429 ? 429 : 502).json({ detail: "AI generation failed" });
+    console.error("generate-report failed:", err?.message);
+    return res.status(502).json({ detail: "AI generation failed" });
   }
 }
