@@ -1,6 +1,9 @@
 import { localDayStr } from "./dates";
 
 export const LIFE_PLAN_KEY = "rc_life_plan";
+export const LIFE_PLAN_REFRESH_EVENT = "rc-life-plan-refresh";
+
+export const emptyQueueSlot = () => ({ label: "", projectId: null });
 
 export const LIFE_AREAS = [
   { id: "health", label: "Health", color: "#FFD600" },
@@ -31,7 +34,7 @@ export const LIFE_GOAL_STATUSES = [
 ];
 
 const DEFAULT_PLAN = {
-  version: 1,
+  version: 2,
   northStar: "",
   season: {
     label: "Current Season",
@@ -39,12 +42,14 @@ const DEFAULT_PLAN = {
     priorities: [],
   },
   queue: {
-    now: "",
-    next: "",
-    later: "",
+    now: emptyQueueSlot(),
+    next: emptyQueueSlot(),
+    later: emptyQueueSlot(),
   },
+  lastTouchedDate: null,
   energyMode: "normal",
   antiTodos: [],
+  selectedAntiTodoId: null,
   longTermGoals: [],
   interviewNotes: [],
   updatedAt: null,
@@ -113,18 +118,38 @@ export function normalizeAntiTodo(item) {
   };
 }
 
+export function normalizeQueueSlot(slot) {
+  if (typeof slot === "string") return { label: slot, projectId: null };
+  return {
+    label: typeof slot?.label === "string" ? slot.label : "",
+    projectId: slot?.projectId || null,
+  };
+}
+
 export function normalizeLifePlan(plan) {
   const base = { ...DEFAULT_PLAN, ...(plan || {}) };
+  const queue = {
+    now: normalizeQueueSlot(base.queue?.now),
+    next: normalizeQueueSlot(base.queue?.next),
+    later: normalizeQueueSlot(base.queue?.later),
+  };
+  const antiTodos = (base.antiTodos || []).map(normalizeAntiTodo);
+  const selectedAntiTodo = antiTodos.find((item) => item.id === base.selectedAntiTodoId && item.active)
+    || antiTodos.find((item) => item.active)
+    || null;
   return {
     ...base,
+    version: 2,
     season: {
       ...DEFAULT_PLAN.season,
       ...(base.season || {}),
       priorities: (base.season?.priorities || []).map(normalizePriority),
     },
-    queue: { ...DEFAULT_PLAN.queue, ...(base.queue || {}) },
+    queue,
+    lastTouchedDate: typeof base.lastTouchedDate === "string" ? base.lastTouchedDate : null,
     energyMode: ENERGY_MODES.some((mode) => mode.id === base.energyMode) ? base.energyMode : DEFAULT_PLAN.energyMode,
-    antiTodos: (base.antiTodos || []).map(normalizeAntiTodo),
+    antiTodos,
+    selectedAntiTodoId: selectedAntiTodo?.id || null,
     longTermGoals: (base.longTermGoals || []).map(normalizeLifeGoal),
     interviewNotes: Array.isArray(base.interviewNotes) ? base.interviewNotes : [],
   };
@@ -140,6 +165,7 @@ export function readLifePlan() {
 
 export function persistLifePlan(plan) {
   window.localStorage.setItem(LIFE_PLAN_KEY, JSON.stringify({ ...plan, updatedAt: new Date().toISOString() }));
+  window.dispatchEvent(new Event(LIFE_PLAN_REFRESH_EVENT));
 }
 
 export function newPriority(label, area = "life") {

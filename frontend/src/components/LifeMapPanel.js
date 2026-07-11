@@ -11,6 +11,7 @@ import {
   newLifeGoal,
   newMilestone,
   newPriority,
+  normalizeLifePlan,
   persistLifePlan,
   readLifePlan,
   trackedSecondsForProjects,
@@ -79,7 +80,7 @@ export default function LifeMapPanel({ projects = [], entries = [], currentTimer
     persistLifePlan(next);
   };
 
-  const updatePlan = (fn) => save(fn(plan));
+  const updatePlan = (fn) => save(normalizeLifePlan(fn(plan)));
   const activeLifeGoals = plan.longTermGoals.filter((goal) => !["complete", "paused", "someday"].includes(goal.status));
   const seasonProjectIds = [...new Set(activeLifeGoals.flatMap((goal) => goal.projectIds || []))];
   const seasonTracked = trackedSecondsForProjects(entries, currentTimer, seasonProjectIds);
@@ -130,8 +131,6 @@ export default function LifeMapPanel({ projects = [], entries = [], currentTimer
     updateLifeGoal(goalId, (goal) => ({ ...goal, milestones: [...goal.milestones, newMilestone(label)] }));
     setMilestoneDrafts((prev) => ({ ...prev, [goalId]: "" }));
   };
-
-  const setQueue = (key, value) => updatePlan((prev) => ({ ...prev, queue: { ...prev.queue, [key]: value } }));
 
   const createGoalFromText = (label, projectId = null) => {
     if (!label.trim() || !onCreateGoal) return;
@@ -231,7 +230,7 @@ export default function LifeMapPanel({ projects = [], entries = [], currentTimer
 
             <section className="space-y-3">
               <div className="flex items-center justify-between gap-2">
-                <FieldLabel>Today Queue</FieldLabel>
+                <FieldLabel>Daily Setup</FieldLabel>
                 <div className="flex items-center gap-1">
                   {ENERGY_MODES.map((mode) => (
                     <button
@@ -248,21 +247,7 @@ export default function LifeMapPanel({ projects = [], entries = [], currentTimer
                   ))}
                 </div>
               </div>
-              {["now", "next", "later"].map((slot) => (
-                <div key={slot} className="flex items-center gap-2">
-                  <span className="w-10 font-mono text-[9px] text-[#71717A] uppercase tracking-widest">{slot}</span>
-                  <TextInput value={plan.queue[slot]} onChange={(value) => setQueue(slot, value)} placeholder={`${slot} task`} className="flex-1 min-w-0" testid={`life-queue-${slot}`} />
-                  <button
-                    onClick={() => createGoalFromText(plan.queue[slot])}
-                    disabled={!plan.queue[slot].trim()}
-                    className="text-[#52525B] hover:text-[#00FF41] disabled:opacity-40 disabled:hover:text-[#52525B]"
-                    title="Add to Goals"
-                  >
-                    <Target className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
-              <div className="pt-2 border-t border-[#1A1A1A] space-y-2">
+              <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <FieldLabel>Anti-To-Do</FieldLabel>
                   <span className="font-mono text-[9px]" style={{ color: energyMeta(plan.energyMode).color }}>

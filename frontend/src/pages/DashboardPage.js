@@ -10,10 +10,12 @@ import RecentEntries from "@/components/RecentEntries";
 import ProjectChip from "@/components/ProjectChip";
 import LogPastTimeForm from "@/components/LogPastTimeForm";
 import GoalCard from "@/components/GoalCard";
+import TodayQueue from "@/components/TodayQueue";
 import ReconcileSheet from "@/components/ReconcileSheet";
 import { readGoals, persistGoals as writeGoals, GOALS_REFRESH_EVENT, normalizeGoal, computePacing, computeGoalProgress, computeSubgoalProgress, isGoalActive, isSubgoalActive, todayStr, formatGoalTime, completedSummary } from "@/lib/goals";
 import { computeStreak } from "@/lib/streak";
 import { localDayStr } from "@/lib/dates";
+import { emptyQueueSlot, LIFE_PLAN_KEY, LIFE_PLAN_REFRESH_EVENT, normalizeLifePlan, persistLifePlan, readLifePlan } from "@/lib/lifePlan";
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -48,6 +50,7 @@ export default function DashboardPage({ user }) {
   const [, setTick] = useState(0); // 1-second tick for real-time goal progress
 
   const [goals, setGoals] = useState(readGoals);
+  const [lifePlan, setLifePlan] = useState(readLifePlan);
   const [showGoalForm, setShowGoalForm] = useState(false);
   const [newGoalLabel, setNewGoalLabel] = useState("");
   const [newGoalHours, setNewGoalHours] = useState("");
@@ -73,6 +76,19 @@ export default function DashboardPage({ user }) {
     const id = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(id);
   }, [currentTimer]);
+
+  useEffect(() => {
+    const refreshLifePlan = () => setLifePlan(readLifePlan());
+    const onStorage = (event) => {
+      if (event.key === LIFE_PLAN_KEY) refreshLifePlan();
+    };
+    window.addEventListener(LIFE_PLAN_REFRESH_EVENT, refreshLifePlan);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(LIFE_PLAN_REFRESH_EVENT, refreshLifePlan);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -223,6 +239,61 @@ export default function DashboardPage({ user }) {
     } catch (err) {
       toast.error(err.message || "Failed to switch project");
     }
+  };
+
+  const updateLifePlan = (updater) => {
+    const next = normalizeLifePlan(updater(lifePlan));
+    setLifePlan(next);
+    persistLifePlan(next);
+  };
+
+  const updateQueueSlot = (slot, fields) => {
+    updateLifePlan((plan) => ({
+      ...plan,
+      lastTouchedDate: todayStr(),
+      queue: {
+        ...plan.queue,
+        [slot]: { ...plan.queue[slot], ...fields },
+      },
+    }));
+  };
+
+  const startQueueSlot = async (slot) => {
+    const item = lifePlan.queue[slot];
+    const label = item.label.trim();
+    if (!label) return;
+    const projectId = projects.some((project) => project.project_id === item.projectId)
+      ? item.projectId
+      : null;
+    try {
+      if (currentTimer) await handleTimerStop();
+      await handleTimerStart(label, projectId);
+      updateLifePlan((plan) => ({ ...plan, lastTouchedDate: todayStr() }));
+      toast.success(`Working on: ${label}`);
+    } catch (err) {
+      toast.error(err.message || "Failed to start queue item");
+    }
+  };
+
+  const completeQueueSlot = (slot) => {
+    updateLifePlan((plan) => {
+      const queue = { ...plan.queue };
+      if (slot === "now") {
+        queue.now = queue.next;
+        queue.next = queue.later;
+        queue.later = emptyQueueSlot();
+      } else if (slot === "next") {
+        queue.next = queue.later;
+        queue.later = emptyQueueSlot();
+      } else {
+        queue.later = emptyQueueSlot();
+      }
+      return { ...plan, queue, lastTouchedDate: todayStr() };
+    });
+  };
+
+  const selectAntiTodo = (antiTodoId) => {
+    updateLifePlan((plan) => ({ ...plan, selectedAntiTodoId: antiTodoId || null }));
   };
 
   // Goals — every change goes through saveGoals, which snapshots the prior
@@ -752,6 +823,16 @@ export default function DashboardPage({ user }) {
           activeGoals={activeGoals}
           inputRef={timerInputRef}
           suggestions={goalSuggestions}
+        />
+
+        <TodayQueue
+          plan={lifePlan}
+          projects={projects}
+          currentTimer={currentTimer}
+          onUpdateSlot={updateQueueSlot}
+          onStartSlot={startQueueSlot}
+          onCompleteSlot={completeQueueSlot}
+          onSelectAntiTodo={selectAntiTodo}
         />
 
         {/* First-run guide: shows only before anything has ever been tracked */}
