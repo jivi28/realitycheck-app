@@ -7,6 +7,7 @@ import {
   isSubgoalActive,
   formatGoalTime,
   formatDoneStamp,
+  goalDeadlineInfo,
 } from "@/lib/goals";
 import { projectIconComp } from "@/lib/projectIcons";
 
@@ -115,17 +116,19 @@ export default function GoalCard({
   const linkedProject = projects.find((p) => p.project_id === goal.projectId);
   const barColor = goal.done ? "#00FF41" : prog.over > 0 ? "#FF8C00" : linkedProject?.color || "#00FF41";
   const tag = statusTag(prog, goal.done);
+  const deadline = goalDeadlineInfo(goal, prog.seconds);
   const hasEntries = prog.seconds > 0;
   const workLabel = hasEntries ? "Continue" : "Work";
   const isNext = hierarchyState === "next" || hierarchyState === "start";
   const isNow = hierarchyState === "now";
+  const isLater = hierarchyState === "later";
   const hasCollapsedNext = !!nextSubgoalId && !expanded;
   const nextLabel = hierarchyState === "start" ? "Start Next" : "Next";
 
   // Keep the secondary cluster visible while one of its controls is in use.
   const forceShow = projMenu || targetOpen || confirmDel;
-  const secondaryCls = `flex items-center gap-2 transition-opacity ${
-    forceShow ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
+  const secondaryCls = `${expanded ? "flex" : "hidden"} sm:flex items-center gap-2 transition-opacity opacity-100 ${
+    forceShow ? "sm:opacity-100" : "sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100"
   }`;
 
   const addSubgoal = () => {
@@ -159,8 +162,8 @@ export default function GoalCard({
       data-testid={`goal-card-${goal.id}`}
     >
       {/* Header row */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0 w-full sm:w-auto">
           {dragHandle && (
             <button
               ref={dragHandle.setActivatorNodeRef}
@@ -176,7 +179,7 @@ export default function GoalCard({
           )}
           {priorityIndex != null && !goal.done && (
             <span
-              title={isNow ? "Current task" : isNext ? "Next task in priority order" : "Priority rank: top goals should finish earlier"}
+              title={isNow ? "Current task" : isNext ? "Next task in priority order" : isLater ? "Third task in this sprint" : "Priority rank: top goals should finish earlier"}
               className={`font-mono text-[9px] border px-1.5 py-0.5 shrink-0 ${
                 isNow
                   ? "text-[#00FF41] border-[#00FF41]/35 bg-[#00FF41]/10"
@@ -185,8 +188,17 @@ export default function GoalCard({
                   : "text-[#00FF41] border-[#00FF41]/35 bg-[#00FF41]/10"
               }`}
             >
-              P{priorityIndex + 1}{isNow ? " · Now" : isNext ? ` · ${nextLabel}` : ""}
+              P{priorityIndex + 1}{isNow ? " · Now" : isNext ? ` · ${nextLabel}` : isLater ? " · Later" : ""}
             </span>
+          )}
+          {goal.upNext && !goal.done && (
+            <button
+              onClick={() => onToggleGoalUpNext(goal.id)}
+              className="text-[#60A5FA] shrink-0"
+              title="Remove from Up Next"
+            >
+              <Star className="w-3 h-3 fill-current" />
+            </button>
           )}
           <button
             onClick={() => onToggleExpand(goal.id)}
@@ -219,13 +231,23 @@ export default function GoalCard({
           )}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto sm:shrink-0">
           {goal.done && goal.doneAt && (
             <span className="font-mono text-[9px] text-[#52525B] tabular-nums hidden sm:inline" title={`Completed ${formatDoneStamp(goal.doneAt)}`}>
               done {formatDoneStamp(goal.doneAt)}
             </span>
           )}
           {tag && <span className="font-mono text-[9px] uppercase tracking-wider" style={{ color: tag.color }}>{tag.text}</span>}
+          {deadline && (
+            <span
+              className="hidden sm:inline font-mono text-[9px] uppercase tracking-wider border px-1.5 py-0.5"
+              style={{ color: deadline.color, borderColor: `${deadline.color}66`, backgroundColor: `${deadline.color}12` }}
+              title={`${formatGoalTime(deadline.remainingSeconds)} remaining · ${formatGoalTime(deadline.dailySeconds)} per day`}
+              data-testid={`goal-deadline-${goal.id}`}
+            >
+              {deadline.label} · {formatGoalTime(deadline.dailySeconds)}/day
+            </span>
+          )}
           <span className={`font-mono text-[10px] tabular-nums ${active ? "text-[#00FF41]" : "text-[#71717A]"}`}>
             {formatGoalTime(prog.seconds)} / {goal.targetHours}h
           </span>
@@ -278,7 +300,7 @@ export default function GoalCard({
             </div>
 
             {/* cadence toggle */}
-            {!goal.done && (
+            {!goal.done && !goal.upNext && (
               <button
                 onClick={() => onToggleGoalUpNext(goal.id)}
                 data-testid={`up-next-goal-${goal.id}`}
@@ -332,6 +354,12 @@ export default function GoalCard({
       <div className="w-full h-1 bg-[#1A1A1A] mt-1.5">
         <div className="h-full transition-all duration-1000" style={{ width: `${prog.pct}%`, backgroundColor: barColor }} />
       </div>
+
+      {deadline && (
+        <p className="sm:hidden font-mono text-[9px] uppercase tracking-wider mt-1" style={{ color: deadline.color }}>
+          {deadline.label} · {formatGoalTime(deadline.remainingSeconds)} left · {formatGoalTime(deadline.dailySeconds)}/day
+        </p>
+      )}
 
       {/* carry-over breakdown */}
       {goal.carryOver && prog.beforeSeconds > 0 && (
@@ -407,6 +435,15 @@ export default function GoalCard({
                     {subIsNext && !sub.done && (
                       <span className="font-mono text-[8px] text-[#60A5FA] uppercase tracking-widest shrink-0">Next</span>
                     )}
+                    {sub.upNext && !sub.done && (
+                      <button
+                        onClick={() => onToggleSubgoalUpNext(goal.id, sub.id)}
+                        className="text-[#60A5FA] shrink-0"
+                        title="Remove from Up Next"
+                      >
+                        <Star className="w-2.5 h-2.5 fill-current" />
+                      </button>
+                    )}
                     <span className={`font-mono text-[11px] truncate ${sub.done ? "text-[#00FF41] line-through" : sActive ? "text-[#EDEDED]" : "text-[#A1A1AA]"}`}>
                       {sub.label}
                     </span>
@@ -427,7 +464,7 @@ export default function GoalCard({
                     )}
                     <DoneButton done={sub.done} reached={sp.reached} onClick={() => onMarkSubgoalDone(goal.id, sub.id)} size="xs" />
                     <div className={`flex items-center gap-1.5 transition-opacity ${subForce ? "opacity-100" : "opacity-0 group-hover/sub:opacity-100 focus-within:opacity-100"}`}>
-                      {!sub.done && (
+                      {!sub.done && !sub.upNext && (
                         <button
                           onClick={() => onToggleSubgoalUpNext(goal.id, sub.id)}
                           data-testid={`up-next-subgoal-${sub.id}`}

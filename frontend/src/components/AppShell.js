@@ -16,6 +16,7 @@ import {
   Upload,
   Bell,
   BellOff,
+  Compass,
 } from "lucide-react";
 import { toast } from "sonner";
 import { exportAllData, importAllData } from "@/lib/dataExport";
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { id: "reports", label: "Reports", icon: BarChart3, path: "/reports" },
   { id: "ai-report", label: "AI Report", icon: Brain, path: "/ai-report" },
   { id: "projects", label: "Projects", icon: FolderOpen, path: "/projects" },
+  { id: "life-map", label: "Life Map", icon: Compass, path: "/life-map" },
   { id: "schedules", label: "Schedules", icon: CalendarClock, path: "/schedules" },
   { id: "history", label: "History", icon: History, path: "/history" },
 ];

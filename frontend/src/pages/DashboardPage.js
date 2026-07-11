@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Play, Plus, X, Undo2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Play, Plus, X, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { API } from "@/App";
 import AppShell from "@/components/AppShell";
@@ -17,6 +17,8 @@ import { localDayStr } from "@/lib/dates";
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+
+const BACKLOG_KEY = "rc_goals_backlog_open";
 
 // Wraps one open goal so it can be dragged into a new priority order. Uses a
 // render-prop so the drag handle (attributes/listeners) is threaded into the
@@ -51,10 +53,14 @@ export default function DashboardPage({ user }) {
   const [newGoalHours, setNewGoalHours] = useState("");
   const [newGoalProjectId, setNewGoalProjectId] = useState("");
   const [newGoalCarryOver, setNewGoalCarryOver] = useState(true);
+  const [newGoalDueDate, setNewGoalDueDate] = useState("");
   const [editingGoal, setEditingGoal] = useState(null);
   const [expandedGoals, setExpandedGoals] = useState(() => new Set());
   const [reconcileOpen, setReconcileOpen] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [showBacklog, setShowBacklog] = useState(() => {
+    try { return window.localStorage.getItem(BACKLOG_KEY) === "1"; } catch { return false; }
+  });
   // When a break ends, resolve what it was: { gapStart, gapEnd, seconds, driftId }
   const [breakResolve, setBreakResolve] = useState(null);
 
@@ -320,9 +326,10 @@ export default function DashboardPage({ user }) {
         carryOver: newGoalCarryOver,
         startDate: todayStr(),
         startAt: new Date().toISOString(),
+        dueDate: newGoalDueDate || null,
       }),
     ]);
-    setNewGoalLabel(""); setNewGoalHours(""); setNewGoalProjectId(""); setNewGoalCarryOver(true); setShowGoalForm(false);
+    setNewGoalLabel(""); setNewGoalHours(""); setNewGoalProjectId(""); setNewGoalCarryOver(true); setNewGoalDueDate(""); setShowGoalForm(false);
   };
 
   // Start timer for a specific goal / subgoal (stops current timer first if running)
@@ -563,7 +570,8 @@ export default function DashboardPage({ user }) {
     return sub ? { kind: "subgoal", goal, sub, label: sub.label, parent: goal.label } : null;
   }, null);
 
-  const nowGoalIndex = currentTimer ? openGoals.findIndex((g) => isGoalActive(g, currentTimer)) : -1;
+  const activeGoalIndex = currentTimer ? openGoals.findIndex((g) => isGoalActive(g, currentTimer)) : -1;
+  const nowGoalIndex = activeGoalIndex >= 0 ? activeGoalIndex : !currentTimer && openGoals.length ? 0 : -1;
   const nowGoal = nowGoalIndex >= 0 ? openGoals[nowGoalIndex] : null;
   const explicitNextIsNow = explicitNextItem
     ? explicitNextItem.kind === "goal"
@@ -571,9 +579,7 @@ export default function DashboardPage({ user }) {
       : isSubgoalActive(explicitNextItem.sub, currentTimer)
     : false;
   const automaticNextGoal = !explicitNextItem || explicitNextIsNow
-    ? currentTimer
-      ? nowGoalIndex >= 0 ? openGoals[nowGoalIndex + 1] || null : null
-      : openGoals[0] || null
+    ? nowGoalIndex >= 0 ? openGoals[nowGoalIndex + 1] || null : null
     : null;
   const nextGoalId = !explicitNextIsNow && explicitNextItem?.kind === "goal"
     ? explicitNextItem.goal.id
@@ -587,8 +593,26 @@ export default function DashboardPage({ user }) {
 
   const hierarchyStateFor = (goal) => {
     if (nowGoal?.id === goal.id) return "now";
-    if (nextGoalId === goal.id) return currentTimer ? "next" : "start";
+    if (nextGoalId === goal.id) return "next";
+    if (openGoals[2]?.id === goal.id) return "later";
     return null;
+  };
+
+  const alwaysVisibleIds = new Set([
+    ...openGoals.slice(0, 3).map((goal) => goal.id),
+    nowGoal?.id,
+    nextGoalId,
+    nextSubgoalParentId,
+  ].filter(Boolean));
+  const sprintGoals = openGoals.filter((goal) => alwaysVisibleIds.has(goal.id));
+  const backlogGoals = openGoals.filter((goal) => !alwaysVisibleIds.has(goal.id));
+
+  const toggleBacklog = () => {
+    setShowBacklog((current) => {
+      const next = !current;
+      try { window.localStorage.setItem(BACKLOG_KEY, next ? "1" : "0"); } catch { /* ignore */ }
+      return next;
+    });
   };
 
   const renderGoalCard = (goal, dragHandle = null, priorityIndex = null) => (
@@ -620,6 +644,87 @@ export default function DashboardPage({ user }) {
       onToggleSubgoalUpNext={toggleSubgoalUpNext}
     />
   );
+
+  const renderSortableGoal = (goal) => {
+    const priorityIndex = openGoals.findIndex((item) => item.id === goal.id);
+    return (
+      <SortableGoalCard key={goal.id} id={goal.id}>
+        {(dragHandle) => {
+          if (editingGoal?.id === goal.id) {
+            return (
+              <div className="space-y-2 p-2 -mx-2 border border-[#222]">
+                <input
+                  type="text"
+                  value={editingGoal.label}
+                  onChange={(e) => setEditingGoal({ ...editingGoal, label: e.target.value })}
+                  autoFocus
+                  className="w-full bg-transparent border-b border-[#333] focus:border-[#00FF41] py-1 font-mono text-xs text-[#EDEDED] outline-none transition-colors"
+                />
+                <div className="flex gap-2 flex-wrap items-center">
+                  <input
+                    type="number"
+                    value={editingGoal.targetHours}
+                    onChange={(e) => setEditingGoal({ ...editingGoal, targetHours: parseFloat(e.target.value) })}
+                    min="0.25" max="24" step="0.25"
+                    className="w-20 bg-transparent border-b border-[#333] focus:border-[#00FF41] py-1 font-mono text-xs text-[#EDEDED] outline-none transition-colors"
+                    title="Target hours"
+                  />
+                  <input
+                    type="date"
+                    value={editingGoal.dueDate || ""}
+                    onChange={(e) => setEditingGoal({ ...editingGoal, dueDate: e.target.value || null })}
+                    className="bg-[#0A0A0A] border border-[#333] font-mono text-xs text-[#A1A1AA] px-2 py-1 outline-none [color-scheme:dark]"
+                    title="Optional deadline"
+                  />
+                  <select
+                    value={editingGoal.projectId || ""}
+                    onChange={(e) => setEditingGoal({ ...editingGoal, projectId: e.target.value || null })}
+                    className="flex-1 min-w-[120px] bg-[#0A0A0A] border border-[#333] font-mono text-xs text-[#A1A1AA] px-2 py-1 outline-none"
+                  >
+                    <option value="">Any tracked time</option>
+                    {projects.map((project) => (
+                      <option key={project.project_id} value={project.project_id}>{project.name}</option>
+                    ))}
+                  </select>
+                  <div className="flex border border-[#222]" title="Until done keeps your time across days; Daily resets each midnight">
+                    <button
+                      onClick={() => setEditingGoal({ ...editingGoal, carryOver: true })}
+                      className={`font-mono text-[10px] uppercase tracking-wider px-2.5 py-1 transition-colors ${
+                        editingGoal.carryOver ? "bg-[#60A5FA]/15 text-[#60A5FA]" : "text-[#52525B] hover:text-[#A1A1AA]"
+                      }`}
+                    >
+                      → Until done
+                    </button>
+                    <button
+                      onClick={() => setEditingGoal({ ...editingGoal, carryOver: false })}
+                      className={`font-mono text-[10px] uppercase tracking-wider px-2.5 py-1 border-l border-[#222] transition-colors ${
+                        !editingGoal.carryOver ? "bg-[#00FF41]/15 text-[#00FF41]" : "text-[#52525B] hover:text-[#A1A1AA]"
+                      }`}
+                    >
+                      ↻ Daily
+                    </button>
+                  </div>
+                  <button
+                    onClick={saveEditGoal}
+                    className="bg-[#00FF41] text-black font-mono text-[10px] font-bold uppercase tracking-wider px-3 py-1 hover:bg-[#00CC33] transition-colors"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setEditingGoal(null)}
+                    className="font-mono text-[10px] text-[#A1A1AA] hover:text-[#EDEDED] uppercase tracking-wider px-2 py-1 border border-[#333] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            );
+          }
+          return renderGoalCard(goal, dragHandle, priorityIndex);
+        }}
+      </SortableGoalCard>
+    );
+  };
 
   return (
     <AppShell user={user} activePage="dashboard">
@@ -720,75 +825,21 @@ export default function DashboardPage({ user }) {
 
           <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={handleGoalDragEnd}>
             <SortableContext items={openGoals.map((g) => g.id)} strategy={verticalListSortingStrategy}>
-              {openGoals.map((goal, index) => (
-                <SortableGoalCard key={goal.id} id={goal.id}>
-                  {(dragHandle) => {
-                    if (editingGoal?.id === goal.id) {
-                      return (
-                        <div className="space-y-2 p-2 -mx-2 border border-[#222]">
-                          <input
-                            type="text"
-                            value={editingGoal.label}
-                    onChange={(e) => setEditingGoal({ ...editingGoal, label: e.target.value })}
-                    autoFocus
-                    className="w-full bg-transparent border-b border-[#333] focus:border-[#00FF41] py-1 font-mono text-xs text-[#EDEDED] outline-none transition-colors"
-                  />
-                  <div className="flex gap-2 flex-wrap items-center">
-                    <input
-                      type="number"
-                      value={editingGoal.targetHours}
-                      onChange={(e) => setEditingGoal({ ...editingGoal, targetHours: parseFloat(e.target.value) })}
-                      min="0.25" max="24" step="0.25"
-                      className="w-20 bg-transparent border-b border-[#333] focus:border-[#00FF41] py-1 font-mono text-xs text-[#EDEDED] outline-none transition-colors"
-                    />
-                    <select
-                      value={editingGoal.projectId || ""}
-                      onChange={(e) => setEditingGoal({ ...editingGoal, projectId: e.target.value || null })}
-                      className="flex-1 min-w-[120px] bg-[#0A0A0A] border border-[#333] font-mono text-xs text-[#A1A1AA] px-2 py-1 outline-none"
-                    >
-                      <option value="">Any tracked time</option>
-                      {projects.map((p) => (
-                        <option key={p.project_id} value={p.project_id}>{p.name}</option>
-                      ))}
-                    </select>
-                    <div className="flex border border-[#222]" title="Until done keeps your time across days; Daily resets each midnight">
-                      <button
-                        onClick={() => setEditingGoal({ ...editingGoal, carryOver: true })}
-                        className={`font-mono text-[10px] uppercase tracking-wider px-2.5 py-1 transition-colors ${
-                          editingGoal.carryOver ? "bg-[#60A5FA]/15 text-[#60A5FA]" : "text-[#52525B] hover:text-[#A1A1AA]"
-                        }`}
-                      >
-                        → Until done
-                      </button>
-                      <button
-                        onClick={() => setEditingGoal({ ...editingGoal, carryOver: false })}
-                        className={`font-mono text-[10px] uppercase tracking-wider px-2.5 py-1 border-l border-[#222] transition-colors ${
-                          !editingGoal.carryOver ? "bg-[#00FF41]/15 text-[#00FF41]" : "text-[#52525B] hover:text-[#A1A1AA]"
-                        }`}
-                      >
-                        ↻ Daily
-                      </button>
-                    </div>
-                    <button
-                      onClick={saveEditGoal}
-                      className="bg-[#00FF41] text-black font-mono text-[10px] font-bold uppercase tracking-wider px-3 py-1 hover:bg-[#00CC33] transition-colors"
-                    >
-                      Save
-                    </button>
-                    <button
-                      onClick={() => setEditingGoal(null)}
-                      className="font-mono text-[10px] text-[#A1A1AA] hover:text-[#EDEDED] uppercase tracking-wider px-2 py-1 border border-[#333] transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
+              {sprintGoals.map(renderSortableGoal)}
+              {backlogGoals.length > 0 && (
+                <div className="pt-2 border-t border-[#1A1A1A]">
+                  <button
+                    onClick={toggleBacklog}
+                    data-testid="toggle-backlog"
+                    className="flex items-center gap-1.5 font-mono text-[10px] text-[#71717A] hover:text-[#EDEDED] uppercase tracking-wider transition-colors"
+                    title="Show lower-priority goals"
+                  >
+                    {showBacklog ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                    Backlog ({backlogGoals.length})
+                  </button>
+                  {showBacklog && <div className="space-y-1 mt-2">{backlogGoals.map(renderSortableGoal)}</div>}
                 </div>
-                      );
-                    }
-                    return renderGoalCard(goal, dragHandle, index);
-                  }}
-                </SortableGoalCard>
-              ))}
+              )}
             </SortableContext>
           </DndContext>
 
@@ -837,6 +888,14 @@ export default function DashboardPage({ user }) {
                   max="24"
                   step="0.25"
                   className="w-20 bg-transparent border-b border-[#333] focus:border-[#00FF41] py-1.5 font-mono text-xs text-[#EDEDED] placeholder:text-[#333] outline-none transition-colors"
+                />
+                <input
+                  type="date"
+                  value={newGoalDueDate}
+                  onChange={(e) => setNewGoalDueDate(e.target.value)}
+                  className="bg-[#0A0A0A] border border-[#333] font-mono text-xs text-[#A1A1AA] px-2 py-1.5 outline-none [color-scheme:dark]"
+                  title="Optional deadline"
+                  aria-label="Optional goal deadline"
                 />
                 <select
                   value={newGoalProjectId}

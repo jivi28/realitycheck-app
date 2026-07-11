@@ -43,6 +43,39 @@ export function formatGoalTime(seconds) {
   return `${s % 60}s`;
 }
 
+function dayDate(day) {
+  const [year, month, date] = String(day || "").split("-").map(Number);
+  if (!year || !month || !date) return null;
+  return new Date(year, month - 1, date);
+}
+
+export function goalDeadlineInfo(goal, progressSeconds = 0) {
+  if (!goal?.dueDate || goal.done) return null;
+  const due = dayDate(goal.dueDate);
+  const today = dayDate(todayStr());
+  if (!due || !today) return null;
+
+  const diffDays = Math.round((due.getTime() - today.getTime()) / 86400000);
+  const remainingSeconds = Math.max(0, (Number(goal.targetHours) || 0) * 3600 - progressSeconds);
+  const calendarDays = Math.max(1, diffDays + 1);
+  const dailySeconds = remainingSeconds / calendarDays;
+  const label = diffDays < 0
+    ? "Overdue"
+    : diffDays === 0
+    ? "Today"
+    : diffDays === 1
+    ? "Tomorrow"
+    : `${diffDays} days`;
+
+  return {
+    label,
+    color: diffDays < 0 ? "#FF003C" : diffDays <= 1 ? "#FFD600" : "#60A5FA",
+    remainingSeconds,
+    dailySeconds,
+    diffDays,
+  };
+}
+
 // Monday-based start of the current week as YYYY-MM-DD (local, to match todayStr).
 export function startOfWeekStr() {
   return localStartOfWeekStr();
@@ -107,6 +140,7 @@ export function normalizeGoal(goal) {
     addedSeconds: 0,
     startDate: todayStr(),
     startAt: null,
+    dueDate: null,
     ...goal,
     aliases: Array.isArray(goal.aliases) ? goal.aliases : [],
     subgoals: (goal.subgoals || []).map((s) => ({

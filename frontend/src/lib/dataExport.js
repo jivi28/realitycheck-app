@@ -4,6 +4,7 @@
  */
 import { STORAGE_KEY, replaceAllData } from "./browserApi";
 import { readGoals } from "./goals";
+import { normalizeLifePlan, persistLifePlan, readLifePlan } from "./lifePlan";
 
 export function exportAllData() {
   let state = null;
@@ -14,10 +15,11 @@ export function exportAllData() {
   }
   const payload = {
     app: "realitycheck",
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     state: state || { projects: [], schedules: [], entries: [], reports: [] },
     goals: readGoals(),
+    lifePlan: readLifePlan(),
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -44,5 +46,6 @@ export async function importAllData(file) {
     throw new Error("Not a RealityCheck export file");
   }
   await replaceAllData({ state: payload.state, goals: payload.goals || [] });
+  persistLifePlan(normalizeLifePlan(payload.lifePlan || null));
   window.location.reload();
 }

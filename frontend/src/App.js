@@ -8,6 +8,7 @@ import AIReportPage from "@/pages/AIReportPage";
 import ProjectsPage from "@/pages/ProjectsPage";
 import HistoryPage from "@/pages/HistoryPage";
 import SchedulesPage from "@/pages/SchedulesPage";
+import LifeMapPage from "@/pages/LifeMapPage";
 import { installBrowserApi } from "@/lib/browserApi";
 
 // Treat Vercel's auto-injected internal service path as no backend
@@ -84,6 +85,15 @@ function AppRouter() {
                 element={
                     <ProtectedRoute>
                         {({ user }) => <ProjectsPage user={user} />}
+                    </ProtectedRoute>
+                }
+            />
+
+            <Route
+                path="/life-map"
+                element={
+                    <ProtectedRoute>
+                        {({ user }) => <LifeMapPage user={user} />}
                     </ProtectedRoute>
                 }
             />
