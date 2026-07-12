@@ -10,12 +10,12 @@ import RecentEntries from "@/components/RecentEntries";
 import ProjectChip from "@/components/ProjectChip";
 import LogPastTimeForm from "@/components/LogPastTimeForm";
 import GoalCard from "@/components/GoalCard";
-import TodayQueue from "@/components/TodayQueue";
+import AntiTodoGuardrail from "@/components/AntiTodoGuardrail";
 import ReconcileSheet from "@/components/ReconcileSheet";
 import { readGoals, persistGoals as writeGoals, GOALS_REFRESH_EVENT, normalizeGoal, computePacing, computeGoalProgress, computeSubgoalProgress, isGoalActive, isSubgoalActive, todayStr, formatGoalTime, completedSummary } from "@/lib/goals";
 import { computeStreak } from "@/lib/streak";
 import { localDayStr } from "@/lib/dates";
-import { emptyQueueSlot, LIFE_PLAN_KEY, LIFE_PLAN_REFRESH_EVENT, normalizeLifePlan, persistLifePlan, readLifePlan } from "@/lib/lifePlan";
+import { LIFE_PLAN_KEY, LIFE_PLAN_REFRESH_EVENT, normalizeLifePlan, persistLifePlan, readLifePlan } from "@/lib/lifePlan";
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -245,51 +245,6 @@ export default function DashboardPage({ user }) {
     const next = normalizeLifePlan(updater(lifePlan));
     setLifePlan(next);
     persistLifePlan(next);
-  };
-
-  const updateQueueSlot = (slot, fields) => {
-    updateLifePlan((plan) => ({
-      ...plan,
-      lastTouchedDate: todayStr(),
-      queue: {
-        ...plan.queue,
-        [slot]: { ...plan.queue[slot], ...fields },
-      },
-    }));
-  };
-
-  const startQueueSlot = async (slot) => {
-    const item = lifePlan.queue[slot];
-    const label = item.label.trim();
-    if (!label) return;
-    const projectId = projects.some((project) => project.project_id === item.projectId)
-      ? item.projectId
-      : null;
-    try {
-      if (currentTimer) await handleTimerStop();
-      await handleTimerStart(label, projectId);
-      updateLifePlan((plan) => ({ ...plan, lastTouchedDate: todayStr() }));
-      toast.success(`Working on: ${label}`);
-    } catch (err) {
-      toast.error(err.message || "Failed to start queue item");
-    }
-  };
-
-  const completeQueueSlot = (slot) => {
-    updateLifePlan((plan) => {
-      const queue = { ...plan.queue };
-      if (slot === "now") {
-        queue.now = queue.next;
-        queue.next = queue.later;
-        queue.later = emptyQueueSlot();
-      } else if (slot === "next") {
-        queue.next = queue.later;
-        queue.later = emptyQueueSlot();
-      } else {
-        queue.later = emptyQueueSlot();
-      }
-      return { ...plan, queue, lastTouchedDate: todayStr() };
-    });
   };
 
   const selectAntiTodo = (antiTodoId) => {
@@ -611,13 +566,17 @@ export default function DashboardPage({ user }) {
   // project so picking one fills description + project in one tap.
   const projectsById = Object.fromEntries(projects.map((p) => [p.project_id, p]));
   const goalSuggestions = goals.flatMap((g) => {
+    if (g.done) return [];
     const items = [];
-    if (!g.done) items.push({ label: g.label, projectId: g.projectId || null, project: projectsById[g.projectId], kind: "goal" });
+    items.push({ label: g.label, projectId: g.projectId || null, project: projectsById[g.projectId], kind: "goal" });
     for (const s of g.subgoals || []) {
       if (!s.done) items.push({ label: s.label, projectId: g.projectId || null, project: projectsById[g.projectId], kind: "subgoal", parent: g.label });
     }
     return items;
   });
+  const activeAntiTodos = (lifePlan.antiTodos || [])
+    .filter((item) => item.active)
+    .sort((a, b) => Number(b.id === lifePlan.selectedAntiTodoId) - Number(a.id === lifePlan.selectedAntiTodoId));
 
   // Aggregate pacing across goals + subgoals, with the over/ahead amount
   const pacing = computePacing(goals, goalCtx);
@@ -825,13 +784,8 @@ export default function DashboardPage({ user }) {
           suggestions={goalSuggestions}
         />
 
-        <TodayQueue
+        <AntiTodoGuardrail
           plan={lifePlan}
-          projects={projects}
-          currentTimer={currentTimer}
-          onUpdateSlot={updateQueueSlot}
-          onStartSlot={startQueueSlot}
-          onCompleteSlot={completeQueueSlot}
           onSelectAntiTodo={selectAntiTodo}
         />
 
@@ -1086,6 +1040,7 @@ export default function DashboardPage({ user }) {
         gapEnd={reconcileWindow.gapEnd}
         onClose={() => setReconcileOpen(false)}
         onLogged={fetchAll}
+        antiTodos={activeAntiTodos}
       />
 
       {/* Resolve a just-ended break: Recharge (on purpose) or Drift, or split. */}
@@ -1098,6 +1053,7 @@ export default function DashboardPage({ user }) {
         gapEnd={breakResolve?.gapEnd}
         onClose={() => setBreakResolve(null)}
         onLogged={fetchAll}
+        antiTodos={activeAntiTodos}
       />
     </AppShell>
   );

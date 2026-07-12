@@ -1,15 +1,28 @@
 /**
  * Autocomplete dropdown shown under a description input. When the typed text
- * matches the start of a daily goal or subgoal name, those show up so the user
- * can pick one — which fills both the description and its project in one tap.
+ * Shows the open goal hierarchy on focus, then ranks prefix matches before
+ * substring matches as the user types.
  */
 export default function TaskSuggestionDropdown({ query, suggestions = [], onPick, anchor = "top" }) {
   const q = (query || "").trim().toLowerCase();
-  if (!q) return null;
-
-  const matches = suggestions
-    .filter((s) => s.label && s.label.toLowerCase().startsWith(q) && s.label.toLowerCase() !== q)
-    .slice(0, 6);
+  const seen = new Set();
+  const unique = suggestions.filter((suggestion) => {
+    if (!suggestion.label) return false;
+    const key = `${suggestion.kind}:${suggestion.label.trim().toLowerCase()}:${suggestion.parent || ""}:${suggestion.projectId || ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const matches = unique
+    .map((suggestion, index) => {
+      const label = suggestion.label.toLowerCase();
+      const rank = !q || label.startsWith(q) ? 0 : label.includes(q) ? 1 : 2;
+      return { suggestion, index, rank };
+    })
+    .filter(({ rank }) => rank < 2)
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .slice(0, 10)
+    .map(({ suggestion }) => suggestion);
   if (!matches.length) return null;
 
   const pos = anchor === "bottom" ? "bottom-full mb-1" : "top-full mt-1";
@@ -21,7 +34,7 @@ export default function TaskSuggestionDropdown({ query, suggestions = [], onPick
     >
       {matches.map((m, i) => (
         <button
-          key={`${m.kind}-${m.label}-${i}`}
+          key={`${m.kind}-${m.label}-${m.projectId || "none"}`}
           // onMouseDown (not onClick) so selection fires before the input blurs
           onMouseDown={(e) => { e.preventDefault(); onPick(m); }}
           data-testid={`task-suggestion-${i}`}

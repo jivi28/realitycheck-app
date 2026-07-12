@@ -1,154 +1,202 @@
-import { useState, useEffect } from "react";
-import { X, Plus, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Ban, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { API } from "@/App";
 import { CATEGORIES, NOT_PURPOSEFUL, categoryMeta } from "@/lib/categories";
 import { formatGoalTime } from "@/lib/goals";
 
-// A break is only ever Recharge (on purpose) or Drift — so we surface both
-// directly, no ambiguous "Break" umbrella. The two break outcomes lead in both
-// modes; "gap" mode additionally offers the productive categories in case the
-// untracked time was actually work.
-const RECHARGE = CATEGORIES.find((c) => c.id === "rest");
-const PRODUCTIVE = CATEGORIES.filter((c) => c.id !== "rest"); // focus, health, social, care
-const BREAK_CHIPS = [NOT_PURPOSEFUL, RECHARGE]; // Drift leads — the honest default
-const GAP_CHIPS = [RECHARGE, NOT_PURPOSEFUL, ...PRODUCTIVE];
+const RECHARGE = CATEGORIES.find((category) => category.id === "rest");
+const PRODUCTIVE = CATEGORIES.filter((category) => category.id !== "rest");
+const BREAK_CATEGORIES = [NOT_PURPOSEFUL, RECHARGE];
+const GAP_CATEGORIES = [RECHARGE, NOT_PURPOSEFUL, ...PRODUCTIVE];
 
-/**
- * "Account for the gap" sheet. Opens when you tap the untracked bar/row after
- * being away, OR (mode="break") when you resume from a break to resolve what it
- * was. By default you pick the ONE thing you were doing and it logs a single
- * clean entry for the whole window. If it was actually more than one thing, flip
- * on "split into parts" and set the minutes per part yourself. Writes normal
- * entries so the rest of the app (score, timeline, breakdown) updates for free.
- * In break mode, `replaceEntryId` is the pending entry to delete first so the
- * window isn't double-counted.
- */
-export default function ReconcileSheet({ open, awaySeconds, gapStart, gapEnd, onClose, onLogged, mode = "gap", replaceEntryId = null }) {
+const categoryKey = (id) => `category:${id}`;
+
+export default function ReconcileSheet({
+  open,
+  awaySeconds,
+  gapStart,
+  gapEnd,
+  onClose,
+  onLogged,
+  mode = "gap",
+  replaceEntryId = null,
+  antiTodos = [],
+}) {
   const isBreakMode = mode === "break";
-  const CHIPS = isBreakMode ? BREAK_CHIPS : GAP_CHIPS;
-  // Break returns default to Drift (the honest, more-likely outcome) so the sheet
-  // is one confident tap; gap mode starts unselected.
-  const [selected, setSelected] = useState(isBreakMode ? NOT_PURPOSEFUL.id : null); // single category id
+  const categories = isBreakMode ? BREAK_CATEGORIES : GAP_CATEGORIES;
+  const categoryChoices = categories.map((category) => ({
+    key: categoryKey(category.id),
+    category: category.id,
+    label: category.label,
+    color: category.color,
+    Icon: category.Icon,
+    kind: "category",
+  }));
+  const antiChoices = antiTodos.map((item) => ({
+    key: `anti:${item.id}`,
+    category: NOT_PURPOSEFUL.id,
+    label: item.label,
+    color: "#FF8C00",
+    Icon: Ban,
+    kind: "anti",
+  }));
+  const choices = [...categoryChoices, ...antiChoices];
+  const defaultKey = isBreakMode ? categoryKey(NOT_PURPOSEFUL.id) : null;
+
+  const [selected, setSelected] = useState(defaultKey);
   const [note, setNote] = useState("");
   const [showNote, setShowNote] = useState(false);
   const [splitMode, setSplitMode] = useState(false);
-  const [parts, setParts] = useState([]); // [{ category, minutes }]
+  const [parts, setParts] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
-  const gapMinutes = Math.max(1, Math.round(awaySeconds / 60));
-
   useEffect(() => {
-    if (open) {
-      setSelected(isBreakMode ? NOT_PURPOSEFUL.id : null);
-      setNote("");
-      setShowNote(false);
-      setSplitMode(false);
-      setParts([]);
-    }
+    if (!open) return;
+    setSelected(isBreakMode ? categoryKey(NOT_PURPOSEFUL.id) : null);
+    setNote("");
+    setShowNote(false);
+    setSplitMode(false);
+    setParts([]);
   }, [open, gapStart, isBreakMode]);
 
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape" && !submitting) onClose(); };
+    const onKey = (event) => {
+      if (event.key === "Escape" && !submitting) onClose();
+    };
     if (open) document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, submitting, onClose]);
 
   if (!open) return null;
 
-  // POST one entry. Sequential callers only: the mock backend does
-  // read-modify-write on the whole state, so concurrent POSTs would clobber.
-  const postEntry = ({ category, start, end, description }) =>
-    fetch(`${API}/entries`, {
+  const choiceFor = (key) => choices.find((choice) => choice.key === key);
+  const entryDescription = (choice) => {
+    const detail = note.trim();
+    if (choice.kind === "anti") {
+      const base = `Anti-To-Do: ${choice.label}`;
+      return detail ? `${base} - ${detail}` : base;
+    }
+    return detail || choice.label || categoryMeta(choice.category).label;
+  };
+
+  const postEntry = async ({ category, start, end, description }) => {
+    const response = await fetch(`${API}/entries`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({
-        description: description || categoryMeta(category).label,
+        description,
         category,
         is_break: category === NOT_PURPOSEFUL.id,
         start_time: start,
         end_time: end,
       }),
     });
+    if (!response.ok) throw new Error("Failed to create entry");
+  };
 
   const enterSplit = () => {
-    setParts([{ category: selected || CHIPS[0].id, minutes: gapMinutes }]);
+    setParts([{ choiceKey: selected || categoryChoices[0].key, percent: 100 }]);
     setSplitMode(true);
   };
-  const exitSplit = () => setSplitMode(false);
+  const updatePart = (index, patch) => {
+    setParts((current) => current.map((part, partIndex) => (
+      partIndex === index ? { ...part, ...patch } : part
+    )));
+  };
+  const addPart = () => {
+    setParts((current) => {
+      const largestIndex = current.reduce((best, part, index) => (
+        Number(part.percent) > Number(current[best]?.percent || 0) ? index : best
+      ), 0);
+      const largest = Number(current[largestIndex]?.percent || 0);
+      const allocation = Math.floor((largest / 2) / 5) * 5;
+      if (allocation < 5) return current;
+      const next = current.map((part, index) => (
+        index === largestIndex ? { ...part, percent: largest - allocation } : part
+      ));
+      return [...next, { choiceKey: categoryChoices[0].key, percent: allocation }];
+    });
+  };
+  const removePart = (index) => {
+    setParts((current) => {
+      if (current.length === 1) return current;
+      const removed = Number(current[index]?.percent || 0);
+      const remaining = current.filter((_, partIndex) => partIndex !== index);
+      return remaining.map((part, partIndex) => (
+        partIndex === 0 ? { ...part, percent: Number(part.percent || 0) + removed } : part
+      ));
+    });
+  };
 
-  const updatePart = (i, patch) =>
-    setParts((prev) => prev.map((p, idx) => (idx === i ? { ...p, ...patch } : p)));
-  const addPart = () =>
-    setParts((prev) => [...prev, { category: CHIPS[0].id, minutes: Math.max(0, gapMinutes - splitTotalMin) }]);
-  const removePart = (i) => setParts((prev) => prev.filter((_, idx) => idx !== i));
+  const splitTotal = parts.reduce((total, part) => total + (Number(part.percent) || 0), 0);
+  const splitDifference = 100 - splitTotal;
+  const validParts = parts.map((part) => ({ ...part, choice: choiceFor(part.choiceKey) }));
+  const canSubmit = splitMode
+    ? validParts.length > 0 && validParts.every((part) => part.choice && Number(part.percent) > 0) && splitTotal === 100
+    : !!choiceFor(selected);
 
-  const splitTotalMin = parts.reduce((sum, p) => sum + (Number(p.minutes) || 0), 0);
-  const splitRemainingMin = gapMinutes - splitTotalMin;
-
-  // In break mode, the pending break entry has already been logged (as the Drift
-  // default); resolving replaces it, so delete it before writing the real entries.
   const removePending = async () => {
-    if (replaceEntryId) {
-      await fetch(`${API}/entries/${replaceEntryId}`, { method: "DELETE", credentials: "include" });
-    }
+    if (!replaceEntryId) return;
+    const response = await fetch(`${API}/entries/${replaceEntryId}`, { method: "DELETE", credentials: "include" });
+    if (!response.ok) throw new Error("Failed to replace break entry");
   };
 
   const submit = async () => {
+    if (!canSubmit) return;
+    const startMs = Date.parse(gapStart);
+    const endMs = Date.parse(gapEnd);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+      toast.error("This time window is no longer valid");
+      return;
+    }
+
     setSubmitting(true);
     try {
+      await removePending();
       if (splitMode) {
-        const valid = parts.filter((p) => p.category && Number(p.minutes) > 0);
-        if (!valid.length) { toast.error("Add at least one part"); setSubmitting(false); return; }
-        if (splitTotalMin > gapMinutes) { toast.error("Parts add up to more than the gap"); setSubmitting(false); return; }
-        await removePending();
-        const gapEndMs = new Date(gapEnd).getTime();
-        let cursor = new Date(gapStart).getTime();
-        for (const p of valid) {
-          const start = cursor;
-          const end = Math.min(cursor + Number(p.minutes) * 60000, gapEndMs);
+        let cursor = startMs;
+        for (let index = 0; index < validParts.length; index += 1) {
+          const part = validParts[index];
+          const isFinal = index === validParts.length - 1;
+          const partEnd = isFinal
+            ? endMs
+            : Math.min(endMs, cursor + Math.round((endMs - startMs) * (Number(part.percent) / 100)));
           await postEntry({
-            category: p.category,
-            start: new Date(start).toISOString(),
-            end: new Date(end).toISOString(),
-            description: note.trim() || categoryMeta(p.category).label,
+            category: part.choice.category,
+            start: new Date(cursor).toISOString(),
+            end: new Date(partEnd).toISOString(),
+            description: entryDescription(part.choice),
           });
-          cursor = end;
+          cursor = partEnd;
         }
-        toast.success(`Accounted for ${formatGoalTime(splitTotalMin * 60)}`);
       } else {
-        if (!selected) { toast.error("Pick what you were doing"); setSubmitting(false); return; }
-        await removePending();
+        const choice = choiceFor(selected);
         await postEntry({
-          category: selected,
+          category: choice.category,
           start: gapStart,
           end: gapEnd,
-          description: note.trim() || categoryMeta(selected).label,
+          description: entryDescription(choice),
         });
-        toast.success(`Accounted for ${formatGoalTime(awaySeconds)}`);
       }
-      onLogged && onLogged();
+      toast.success(`Accounted for ${formatGoalTime(awaySeconds)}`);
+      onLogged?.();
       onClose();
-    } catch (err) {
+    } catch (_error) {
       toast.error("Failed to log");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const canSubmit = splitMode
-    ? parts.some((p) => p.category && Number(p.minutes) > 0) && splitTotalMin <= gapMinutes
-    : !!selected;
-  const logLabel = splitMode ? formatGoalTime(splitTotalMin * 60) : formatGoalTime(awaySeconds);
-
   return (
     <div
       className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm"
-      onMouseDown={(e) => { if (e.target === e.currentTarget && !submitting) onClose(); }}
+      onMouseDown={(event) => { if (event.target === event.currentTarget && !submitting) onClose(); }}
       data-testid="reconcile-sheet"
     >
-      <div className="w-full sm:max-w-md bg-[#0A0A0A] border border-[#333] sm:rounded-sm shadow-2xl p-5 space-y-4 animate-in slide-in-from-bottom-2">
+      <div className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto bg-[#0A0A0A] border border-[#333] sm:rounded-sm shadow-2xl p-5 space-y-4 animate-in slide-in-from-bottom-2">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="font-mono text-[10px] text-[#71717A] uppercase tracking-widest">
@@ -159,8 +207,8 @@ export default function ReconcileSheet({ open, awaySeconds, gapStart, gapEnd, on
             </p>
             <p className="font-mono text-[10px] text-[#52525B] mt-0.5">
               {splitMode
-                ? "Set how long each thing took."
-                : isBreakMode ? "Did you drift, or did you actually recharge?" : "What were you doing? Pick one."}
+                ? "Estimate what share went to each."
+                : isBreakMode ? "Did you drift, recharge, or cross a guardrail?" : "What were you doing? Pick one."}
             </p>
           </div>
           <button onClick={onClose} className="text-[#52525B] hover:text-[#EDEDED] transition-colors shrink-0" title="Dismiss">
@@ -169,53 +217,84 @@ export default function ReconcileSheet({ open, awaySeconds, gapStart, gapEnd, on
         </div>
 
         {!splitMode ? (
-          /* Single-select category chips */
-          <div className="grid grid-cols-2 gap-2">
-            {CHIPS.map((c) => {
-              const on = selected === c.id;
-              const Icon = c.Icon;
-              return (
-                <button
-                  key={c.id}
-                  onClick={() => setSelected(c.id)}
-                  data-testid={`reconcile-cat-${c.id}`}
-                  className={`flex items-center gap-2 border px-3 py-2.5 font-mono text-xs transition-colors ${
-                    on ? "bg-white/5" : "border-[#222] text-[#A1A1AA] hover:border-[#444]"
-                  }`}
-                  style={on ? { borderColor: c.color, color: c.color } : undefined}
-                >
-                  <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: c.color }} />
-                  <span className="truncate">{c.label}</span>
-                </button>
-              );
-            })}
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              {categoryChoices.map((choice) => {
+                const active = selected === choice.key;
+                const Icon = choice.Icon;
+                return (
+                  <button
+                    key={choice.key}
+                    onClick={() => setSelected(choice.key)}
+                    data-testid={`reconcile-cat-${choice.category}`}
+                    className={`flex items-center gap-2 border px-3 py-2.5 font-mono text-xs transition-colors ${active ? "bg-white/5" : "border-[#222] text-[#A1A1AA] hover:border-[#444]"}`}
+                    style={active ? { borderColor: choice.color, color: choice.color } : undefined}
+                  >
+                    <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: choice.color }} />
+                    <span className="truncate">{choice.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {antiChoices.length > 0 && (
+              <div className="space-y-1.5" data-testid="reconcile-anti-todos">
+                <p className="font-mono text-[9px] text-[#71717A] uppercase tracking-widest">Anti-To-Do</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {antiChoices.map((choice) => {
+                    const active = selected === choice.key;
+                    return (
+                      <button
+                        key={choice.key}
+                        onClick={() => setSelected(choice.key)}
+                        data-testid={`reconcile-anti-${choice.key.slice(5)}`}
+                        className={`flex items-center gap-2 border px-3 py-2.5 font-mono text-xs transition-colors ${active ? "bg-[#FF8C00]/5 border-[#FF8C00] text-[#FF8C00]" : "border-[#222] text-[#A1A1AA] hover:border-[#FF8C00]/50"}`}
+                      >
+                        <Ban className="w-3.5 h-3.5 text-[#FF8C00] shrink-0" />
+                        <span className="truncate">{choice.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
-          /* Split into parts — you choose category + minutes per part */
           <div className="space-y-2">
-            {parts.map((p, i) => (
-              <div key={i} className="flex items-center gap-2" data-testid={`reconcile-part-${i}`}>
+            {parts.map((part, index) => (
+              <div key={index} className="flex items-center gap-2" data-testid={`reconcile-part-${index}`}>
                 <select
-                  value={p.category}
-                  onChange={(e) => updatePart(i, { category: e.target.value })}
+                  value={part.choiceKey}
+                  onChange={(event) => updatePart(index, { choiceKey: event.target.value })}
                   className="flex-1 min-w-0 appearance-none bg-[#0A0A0A] border border-[#333] font-mono text-xs text-[#A1A1AA] px-2.5 py-2 outline-none focus:border-[#555]"
+                  aria-label={`Part ${index + 1} activity`}
                 >
-                  {CHIPS.map((c) => (
-                    <option key={c.id} value={c.id}>{c.label}</option>
-                  ))}
+                  <optgroup label="Activities">
+                    {categoryChoices.map((choice) => <option key={choice.key} value={choice.key}>{choice.label}</option>)}
+                  </optgroup>
+                  {antiChoices.length > 0 && (
+                    <optgroup label="Anti-To-Dos">
+                      {antiChoices.map((choice) => <option key={choice.key} value={choice.key}>Anti-To-Do: {choice.label}</option>)}
+                    </optgroup>
+                  )}
                 </select>
                 <input
                   type="number"
                   min="0"
-                  max={gapMinutes}
+                  max="100"
                   step="5"
-                  value={p.minutes}
-                  onChange={(e) => updatePart(i, { minutes: e.target.value === "" ? "" : Math.max(0, Number(e.target.value)) })}
+                  value={part.percent}
+                  onChange={(event) => updatePart(index, {
+                    percent: event.target.value === "" ? "" : Math.min(100, Math.max(0, Number(event.target.value))),
+                  })}
+                  onBlur={() => updatePart(index, {
+                    percent: Math.min(100, Math.max(0, Math.round((Number(part.percent) || 0) / 5) * 5)),
+                  })}
                   className="w-16 bg-[#0A0A0A] border border-[#333] font-mono text-xs text-[#EDEDED] px-2 py-2 outline-none focus:border-[#555] tabular-nums"
+                  aria-label={`Part ${index + 1} percentage`}
                 />
-                <span className="font-mono text-[10px] text-[#52525B]">min</span>
+                <span className="font-mono text-[10px] text-[#52525B]">%</span>
                 <button
-                  onClick={() => removePart(i)}
+                  onClick={() => removePart(index)}
                   disabled={parts.length === 1}
                   className="text-[#52525B] hover:text-[#FF003C] disabled:opacity-30 transition-colors shrink-0"
                   title="Remove part"
@@ -224,37 +303,34 @@ export default function ReconcileSheet({ open, awaySeconds, gapStart, gapEnd, on
                 </button>
               </div>
             ))}
-            <div className="flex items-center justify-between pt-0.5">
+            <div className="flex items-center justify-between gap-3 pt-0.5">
               <button
                 onClick={addPart}
-                className="flex items-center gap-1 font-mono text-[10px] text-[#71717A] hover:text-[#00FF41] uppercase tracking-wider transition-colors"
+                disabled={!parts.some((part) => Number(part.percent) >= 10)}
+                className="flex items-center gap-1 font-mono text-[10px] text-[#71717A] hover:text-[#00FF41] disabled:opacity-30 uppercase tracking-wider transition-colors"
               >
                 <Plus className="w-3 h-3" /> Add part
               </button>
-              <span
-                className={`font-mono text-[10px] tabular-nums ${splitRemainingMin < 0 ? "text-[#FF003C]" : "text-[#52525B]"}`}
-              >
-                {splitTotalMin}/{gapMinutes}m
-                {splitRemainingMin > 0 ? ` · ${splitRemainingMin}m left untracked` : splitRemainingMin < 0 ? " · over the gap" : ""}
+              <span className={`font-mono text-[10px] tabular-nums ${splitDifference === 0 ? "text-[#00FF41]" : "text-[#FF003C]"}`}>
+                {splitTotal}% total
+                {splitDifference > 0 ? ` - ${splitDifference}% remaining` : splitDifference < 0 ? ` - ${Math.abs(splitDifference)}% over` : ""}
               </span>
             </div>
           </div>
         )}
 
-        {/* Toggle split mode */}
         <button
-          onClick={splitMode ? exitSplit : enterSplit}
+          onClick={splitMode ? () => setSplitMode(false) : enterSplit}
           className="font-mono text-[10px] text-[#71717A] hover:text-[#FF8C00] uppercase tracking-wider transition-colors"
         >
-          {splitMode ? "← back to single" : "+ split into parts"}
+          {splitMode ? "Back to single" : "+ split by percentage"}
         </button>
 
-        {/* Optional note */}
         {showNote ? (
           <input
             type="text"
             value={note}
-            onChange={(e) => setNote(e.target.value)}
+            onChange={(event) => setNote(event.target.value)}
             placeholder="What exactly? (optional)"
             autoFocus
             data-testid="reconcile-note"
@@ -269,7 +345,6 @@ export default function ReconcileSheet({ open, awaySeconds, gapStart, gapEnd, on
           </button>
         )}
 
-        {/* Actions */}
         <div className="flex items-center gap-3 pt-1">
           <button
             onClick={submit}
@@ -277,7 +352,7 @@ export default function ReconcileSheet({ open, awaySeconds, gapStart, gapEnd, on
             data-testid="reconcile-log"
             className="flex-1 bg-[#00FF41] text-black font-mono text-xs font-bold uppercase tracking-wider px-4 py-2.5 hover:bg-[#00CC33] transition-colors disabled:opacity-40"
           >
-            Log {logLabel}
+            Log {formatGoalTime(awaySeconds)}
           </button>
           <button
             onClick={onClose}
